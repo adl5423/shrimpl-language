@@ -1,0 +1,23 @@
+// shrimpl.pest
+
+// Global whitespace: skipped automatically between tokens
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+
+program = { SOI ~ stmt* ~ EOI }
+
+stmt = { server_decl | endpoint_decl }
+
+server_decl = { "server" ~ WHITESPACE+ ~ number }
+
+endpoint_decl = {
+    "endpoint" ~ WHITESPACE+ ~ method ~ WHITESPACE+ ~ path
+        ~ WHITESPACE* ~ ":" ~ WHITESPACE* ~ body
+}
+
+method = { "GET" | "POST" }
+
+path = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
+
+body = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
+
+number = @{ ASCII_DIGIT+ }

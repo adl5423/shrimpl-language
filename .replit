@@ -1,0 +1,17 @@
+entrypoint = "src/main.rs"
+
+# Run the Shrimpl interpreter (build + run)
+run = "/home/runner/.cargo/bin/cargo run"
+
+# Optional: Compile only (some Replit UIs expose this as a "build" action)
+compile = "/home/runner/.cargo/bin/cargo build"
+
+[nix]
+channel = "stable-23_05"
+
+[[ports]]
+localPort = 3000
+externalPort = 80
+
+[agent]
+expertMode = true

@@ -1,0 +1,75 @@
+# Shrimpl demo with data and ML
+# Open /__shrimpl/ui for the visual API UI.
+
+server 3000
+
+# --- Functions ---
+
+func greet(name): "Hello " + name
+
+# Numeric summary from three values
+func stats_summary(a, b, c): "sum=" + sum(number(a), number(b), number(c)) + ", avg=" + avg(number(a), number(b), number(c)) + ", min=" + min(number(a), number(b), number(c)) + ", max=" + max(number(a), number(b), number(c))
+
+# --- Classes ---
+
+class Math:
+  double(x): x * 2
+
+# --- Basic endpoints ---
+
+endpoint GET "/":
+  "Welcome to Shrimpl! Visit /__shrimpl/ui for the API UI."
+
+endpoint GET "/hello/:name":
+  greet(name)
+
+endpoint GET "/double/:n":
+  Math.double(n)
+
+endpoint GET "/welcome":
+  "Hi " + upper(name) + "! Name length: " + len(name)
+
+endpoint GET "/info":
+  json { "lang": "Shrimpl", "version": 0.4, "ui": "/__shrimpl/ui" }
+
+# Numeric analysis from query (?a=10&b=5&c=15)
+endpoint GET "/stats":
+  stats_summary(a, b, c)
+
+# --- Vector / tensor demos ---
+
+# Returns a JSON vector, e.g. [1,2,3,4,5]
+endpoint GET "/vec":
+  vec(1, 2, 3, 4, 5)
+
+# Dot product example: /dot?ax=1&ay=2&bx=3&by=4
+endpoint GET "/dot":
+  tensor_dot(vec(number(ax), number(ay)), vec(number(bx), number(by)))
+
+# --- DataFrame (pandas-ish) ---
+
+# Load a CSV from a URL into a DF JSON
+# Example: /load-data?url=https://people.sc.fsu.edu/~jburkardt/data/csv/hw_200.csv
+endpoint GET "/load-data":
+  df_from_csv(url)
+
+# Peek first 5 rows of a DF (JSON string passed as query "df")
+# In practice you’d POST this; here it’s just a demo.
+endpoint GET "/head":
+  df_head(df, 5)
+
+# Select columns from a DF: /select?df=...&columns=col1,col2
+endpoint GET "/select":
+  df_select(df, columns)
+
+# --- Simple ML: linear regression ---
+
+# Train a tiny model from xs and ys (JSON arrays)
+# Example: /train-linreg?xs=[1,2,3,4]&ys=[2,4,6,8]
+endpoint GET "/train-linreg":
+  linreg_fit(xs, ys)
+
+# Predict with trained model
+# Example: /predict-linreg?model={...}&x=10
+endpoint GET "/predict-linreg":
+  linreg_predict(model, number(x))

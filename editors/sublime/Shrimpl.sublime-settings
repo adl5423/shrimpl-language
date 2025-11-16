@@ -1,0 +1,33 @@
+%YAML 1.2
+---
+name: Shrimpl
+file_extensions:
+  - shr
+scope: source.shrimpl
+
+contexts:
+  main:
+    # Comments
+    - match: '#.*$'
+      scope: comment.line.number-sign.shrimpl
+
+    # Keywords
+    - match: \b(server|endpoint|func|class|json|GET|POST)\b
+      scope: keyword.control.shrimpl
+
+    # Numbers
+    - match: \b\d+(\.\d+)?\b
+      scope: constant.numeric.shrimpl
+
+    # Strings
+    - match: '"'
+      scope: punctuation.definition.string.begin.shrimpl
+      push: string
+
+  string:
+    - meta_scope: string.quoted.double.shrimpl
+    - match: '"'
+      scope: punctuation.definition.string.end.shrimpl
+      pop: true
+    - match: '\\.'
+      scope: constant.character.escape.shrimpl

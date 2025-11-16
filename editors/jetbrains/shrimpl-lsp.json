@@ -1,0 +1,14 @@
+{
+  "name": "Shrimpl",
+  "id": "shrimpl",
+  "command": "shrimpl-lsp",
+  "languages": [
+    {
+      "languageId": "Shrimpl",
+      "fileNamePatterns": [
+        "*.shr"
+      ]
+    }
+  ],
+  "initializationOptions": {}
+}

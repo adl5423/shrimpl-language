@@ -1,0 +1,81 @@
+# -----------------------
+# Rust / Cargo
+# -----------------------
+
+# Compiled output
+/target/
+/**/*.rs.bk
+
+# Rust tooling caches
+/.cargo/
+**/.rustc_info.json
+
+# If you ever use rustfmt backups
+**/*.rs.bk
+
+# -----------------------
+# Node / VS Code extension (editors/vscode)
+# -----------------------
+
+# Node modules and lockfiles that can be reinstalled
+/node_modules/
+**/node_modules/
+
+# Build output from the VS Code extension
+/dist/
+/out/
+**/dist/
+/**/out/
+
+# VSIX packages (built extensions)
+*.vsix
+
+# TypeScript build caches
+*.tsbuildinfo
+
+# npm / yarn / pnpm logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# -----------------------
+# Editors / IDEs
+# -----------------------
+
+# VS Code workspace stuff you don’t need in git
+.vscode/
+.vscode-test/
+
+# JetBrains / IntelliJ / CLion / RustRover
+.idea/
+*.iml
+*.iws
+out/
+
+# Sublime Text
+*.sublime-workspace
+
+# Other editor noise
+*.swp
+*.swo
+*~
+
+# -----------------------
+# OS / Misc
+# -----------------------
+
+# macOS Finder files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Logs / temp
+*.log
+*.tmp
+*.bak

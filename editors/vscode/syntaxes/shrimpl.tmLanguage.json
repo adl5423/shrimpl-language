@@ -1,0 +1,133 @@
+{
+  "name": "Shrimpl",
+  "scopeName": "source.shrimpl",
+  "fileTypes": ["shr"],
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#methods"
+    },
+    {
+      "include": "#function-decls"
+    },
+    {
+      "include": "#class-decls"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.number-sign.shrimpl",
+          "match": "#.*$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.shrimpl",
+          "begin": "\"",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.shrimpl"
+            }
+          },
+          "end": "\"",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.shrimpl"
+            }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.shrimpl",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.shrimpl",
+          "match": "\\b\\d+(?:\\.\\d+)?\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.shrimpl",
+          "match": "\\b(server|func|class|endpoint|json)\\b"
+        }
+      ]
+    },
+    "methods": {
+      "patterns": [
+        {
+          "name": "keyword.other.http-method.shrimpl",
+          "match": "\\b(GET|POST)\\b"
+        }
+      ]
+    },
+    "function-decls": {
+      "patterns": [
+        {
+          "name": "meta.function.shrimpl",
+          "begin": "\\bfunc\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "beginCaptures": {
+            "0": {
+              "name": "keyword.control.shrimpl"
+            },
+            "1": {
+              "name": "entity.name.function.shrimpl"
+            }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#numbers"
+            },
+            {
+              "include": "#keywords"
+            }
+          ]
+        }
+      ]
+    },
+    "class-decls": {
+      "patterns": [
+        {
+          "name": "meta.class.shrimpl",
+          "begin": "\\bclass\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "beginCaptures": {
+            "0": {
+              "name": "keyword.control.shrimpl"
+            },
+            "1": {
+              "name": "entity.name.type.class.shrimpl"
+            }
+          },
+          "end": "$",
+          "patterns": []
+        }
+      ]
+    }
+  }
+}

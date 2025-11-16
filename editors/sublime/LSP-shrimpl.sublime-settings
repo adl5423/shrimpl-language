@@ -1,0 +1,11 @@
+{
+  "clients": {
+    "shrimpl": {
+      "enabled": true,
+      "command": ["shrimpl-lsp"],
+      "selector": "source.shrimpl",
+      "languageId": "shrimpl",
+      "initializationOptions": {}
+    }
+  }
+}
