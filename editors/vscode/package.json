@@ -40,7 +40,14 @@
           "description": "Command used to start the Shrimpl language server (absolute path or executable name)."
         }
       }
-    }
+    },
+    "iconThemes": [
+      {
+        "id": "shrimpl-icons",
+        "label": "Shrimpl Icons",
+        "path": "./icon-theme.json"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
