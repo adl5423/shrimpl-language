@@ -42,11 +42,13 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+      # Dry-run publish but allow a “dirty” working tree (e.g. Cargo.lock differences)
       - name: Dry run publish
-        run: cargo publish --dry-run
+        run: cargo publish --dry-run --locked --allow-dirty
 
       - name: Publish to crates.io
         if: github.ref == 'refs/heads/main'
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish --token $CARGO_REGISTRY_TOKEN
+        # Same flags here so a dirty Cargo.lock never blocks CI publishing
+        run: cargo publish --token "$CARGO_REGISTRY_TOKEN" --locked --allow-dirty
