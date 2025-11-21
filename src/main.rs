@@ -64,7 +64,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         Commands::Run => {
             let (source, program) = load_and_parse(&cli.file)?;
-            // Run the HTTP server using actix
+            // Avoid unused variable warning.
+            let _ = source;
+            // Run the HTTP server using actix.
             actix_web::rt::System::new().block_on(run_server(program))?;
         }
 

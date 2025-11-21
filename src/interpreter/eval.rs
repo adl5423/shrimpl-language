@@ -50,6 +50,7 @@ use crate::parser::ast::{BinOp, Expr, FunctionDef, Program};
 use std::collections::HashMap;
 
 use serde_json::{json, Value};
+use std::fmt;
 use std::io::Cursor;
 use ureq;
 
@@ -60,17 +61,17 @@ enum ValueRuntime {
     Str(String),
 }
 
-impl ToString for ValueRuntime {
-    fn to_string(&self) -> String {
+impl fmt::Display for ValueRuntime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ValueRuntime::Number(n) => {
                 if n.fract() == 0.0 {
-                    format!("{}", *n as i64)
+                    write!(f, "{}", *n as i64)
                 } else {
-                    format!("{}", n)
+                    write!(f, "{}", n)
                 }
             }
-            ValueRuntime::Str(s) => s.clone(),
+            ValueRuntime::Str(s) => write!(f, "{}", s),
         }
     }
 }
@@ -437,7 +438,7 @@ fn eval_builtin(
                 "columns": df.columns,
                 "rows": df.rows,
             });
-            let txt = serde_json::to_string_pretty(&table).unwrap_or_else(|_| df_txt);
+            let txt = serde_json::to_string_pretty(&table).unwrap_or(df_txt);
             Ok(ValueRuntime::Str(txt))
         }
         "df_select" => {
@@ -488,7 +489,7 @@ fn eval_builtin(
                 "columns": col_names,
                 "rows": new_rows,
             });
-            let txt = serde_json::to_string_pretty(&table).unwrap_or_else(|_| df_txt);
+            let txt = serde_json::to_string_pretty(&table).unwrap_or(df_txt);
             Ok(ValueRuntime::Str(txt))
         }
 
@@ -576,11 +577,7 @@ fn eval_binary(
     match op {
         BinOp::Add => match (left, right) {
             (ValueRuntime::Number(a), ValueRuntime::Number(b)) => Ok(ValueRuntime::Number(a + b)),
-            _ => Ok(ValueRuntime::Str(format!(
-                "{}{}",
-                left.to_string(),
-                right.to_string()
-            ))),
+            _ => Ok(ValueRuntime::Str(format!("{}{}", left, right))),
         },
         BinOp::Sub | BinOp::Mul | BinOp::Div => {
             let a = as_number(left)?;

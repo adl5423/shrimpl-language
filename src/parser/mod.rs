@@ -204,8 +204,8 @@ fn parse_endpoint(lines: &[&str], start: usize) -> Result<(EndpointDecl, usize),
 fn parse_body_spec(s: &str, line_no: usize) -> Result<Body, String> {
     let trimmed = s.trim();
 
-    if trimmed.starts_with("json") {
-        let rest = trimmed["json".len()..].trim_start();
+    if let Some(rest) = trimmed.strip_prefix("json") {
+        let rest = rest.trim_start();
         if rest.is_empty() {
             return Err(format!(
                 "Line {}: expected JSON expression after 'json'",
