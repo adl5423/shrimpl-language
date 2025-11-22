@@ -1,5 +1,7 @@
 # Shrimpl 0.5 Programming Language
 
+![Shrimpl logo](assets/shrimpl-banner.png)
+
 ## Introduction
 
 Shrimpl is a small, beginner‑friendly programming language designed to bridge the gap between visual languages (like Scratch) and general‑purpose languages (like Python or JavaScript). It aims to be:
