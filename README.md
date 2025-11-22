@@ -1,6 +1,6 @@
 # Shrimpl 0.5 Programming Language
 
-![Shrimpl logo](assets/shrimpl-banner.png)
+![Shrimpl logo](/assets/shrimpl-banner.png)
 
 ## Introduction
 
