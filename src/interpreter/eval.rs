@@ -299,7 +299,7 @@ fn eval_builtin(
                 return Err("len(x) expects exactly 1 argument".to_string());
             }
             Ok(ValueRuntime::Number(
-                vals[0].to_string().chars().count() as f64,
+                vals[0].to_string().chars().count() as f64
             ))
         }
         "upper" => {
@@ -399,19 +399,14 @@ fn eval_builtin(
             let resp = ureq::get(&url).call();
             match resp {
                 Ok(r) => {
-                    let text = r
-                        .into_string()
-                        .map_err(|e| format!("http_get_json({}): failed to read body: {}", url, e))?;
-                    let json_val: serde_json::Value =
-                        serde_json::from_str(&text).map_err(|e| {
-                            format!(
-                                "http_get_json({}): response was not valid JSON: {}",
-                                url, e
-                            )
-                        })?;
+                    let text = r.into_string().map_err(|e| {
+                        format!("http_get_json({}): failed to read body: {}", url, e)
+                    })?;
+                    let json_val: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
+                        format!("http_get_json({}): response was not valid JSON: {}", url, e)
+                    })?;
                     Ok(ValueRuntime::Str(
-                        serde_json::to_string_pretty(&json_val)
-                            .unwrap_or_else(|_| text.clone()),
+                        serde_json::to_string_pretty(&json_val).unwrap_or_else(|_| text.clone()),
                     ))
                 }
                 Err(err) => Err(format!("http_get_json({}): {}", url, err)),
@@ -493,9 +488,9 @@ fn eval_builtin(
                 .has_headers(true)
                 .from_reader(Cursor::new(text.into_bytes()));
 
-            let headers_record = rdr.headers().map_err(|e| {
-                format!("df_from_csv({}): failed to read headers: {}", url, e)
-            })?;
+            let headers_record = rdr
+                .headers()
+                .map_err(|e| format!("df_from_csv({}): failed to read headers: {}", url, e))?;
             let headers: Vec<String> = headers_record.iter().map(|s| s.to_string()).collect();
 
             let mut rows_json: Vec<Value> = Vec::new();
@@ -753,8 +748,8 @@ fn eval_builtin(
             });
 
             let json_resp = openai_post("chat/completions", &payload)?;
-            let txt = serde_json::to_string_pretty(&json_resp)
-                .unwrap_or_else(|_| json_resp.to_string());
+            let txt =
+                serde_json::to_string_pretty(&json_resp).unwrap_or_else(|_| json_resp.to_string());
             Ok(ValueRuntime::Str(txt))
         }
         "openai_mcp_call" => {
@@ -788,8 +783,8 @@ fn eval_builtin(
             });
 
             let json_resp = openai_post("responses", &payload)?;
-            let txt = serde_json::to_string_pretty(&json_resp)
-                .unwrap_or_else(|_| json_resp.to_string());
+            let txt =
+                serde_json::to_string_pretty(&json_resp).unwrap_or_else(|_| json_resp.to_string());
             Ok(ValueRuntime::Str(txt))
         }
 

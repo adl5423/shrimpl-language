@@ -131,9 +131,7 @@ pub fn chat(user_message: &str) -> Result<String, OpenAIError> {
     let v: Value = serde_json::from_str(&text)?;
     let content = v["choices"][0]["message"]["content"]
         .as_str()
-        .ok_or_else(|| {
-            OpenAIError::Malformed("choices[0].message.content missing".to_string())
-        })?;
+        .ok_or_else(|| OpenAIError::Malformed("choices[0].message.content missing".to_string()))?;
 
     Ok(content.to_string())
 }
@@ -172,17 +170,12 @@ pub fn chat_json(user_message: &str) -> Result<Value, OpenAIError> {
 /// Very lightweight MCP/tools-style call using the Responses API.
 /// This is generic on purpose: you pass `server_id`, `tool_name`, and `args_json`,
 /// and we just forward them as structured text. You can refine this later.
-pub fn mcp_call(
-    server_id: &str,
-    tool_name: &str,
-    args_json: &str,
-) -> Result<Value, OpenAIError> {
+pub fn mcp_call(server_id: &str, tool_name: &str, args_json: &str) -> Result<Value, OpenAIError> {
     let api_key = get_api_key()?;
     let client = Client::new();
 
     // Try to parse the args JSON; if it fails, just treat it as a string.
-    let parsed_args: Value =
-        serde_json::from_str(args_json).unwrap_or_else(|_| json!(args_json));
+    let parsed_args: Value = serde_json::from_str(args_json).unwrap_or_else(|_| json!(args_json));
 
     let body = json!({
         "model": "gpt-4.1-mini",
