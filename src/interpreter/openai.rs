@@ -12,6 +12,16 @@
 //   1. Environment variable SHRIMPL_OPENAI_API_KEY
 //   2. Environment variable OPENAI_API_KEY
 //   3. A key set at runtime via set_api_key()
+//
+// NOTE: The main evaluator currently uses its own OpenAI config and HTTP
+// client. This module is kept as a standalone helper layer for potential
+// reuse and is therefore not wired in yet.
+//
+// Because it is not yet referenced from the rest of the crate, we suppress
+// dead-code warnings for this module so that `-D warnings` does not fail
+// the build.
+
+#![allow(dead_code)]
 
 use serde_json::{json, Value};
 use std::env;
