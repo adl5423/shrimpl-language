@@ -1,6 +1,15 @@
 // shrimpl.pest
-
-// Global whitespace: skipped automatically between tokens
+//
+// Top-level grammar used for simple parsing / tooling.
+// Note: expression parsing (including calls like `openai_chat(...)` and
+// `openai_set_system_prompt(...)`) is handled in the Rust expression
+// parser (src/parser/expr.rs). From the grammar’s point of view, an
+// endpoint body is just “text up to end of line”.
+//
+// This file only needs to know that an endpoint has a body expression;
+// it does NOT need to understand the details of that expression.
+//
+// Global whitespace: skipped automatically between tokens.
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 
 program = { SOI ~ stmt* ~ EOI }
@@ -18,6 +27,14 @@ method = { "GET" | "POST" }
 
 path = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
 
-body = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
+// Endpoint body:
+//
+// Older versions only allowed a quoted string here. Shrimpl 0.5 allows
+// full expressions (e.g. `greet(name)`, `json { ... }`, or
+// `openai_chat("hello")`). For tooling we treat the body as “anything
+// until the end of the line”.
+body = @{ (!NEWLINE ~ ANY)* }
+
+NEWLINE = _{ "\n" }
 
 number = @{ ASCII_DIGIT+ }

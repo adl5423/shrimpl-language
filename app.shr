@@ -1,5 +1,11 @@
-# Shrimpl demo with data and ML
+# Shrimpl demo with data, ML, and OpenAI helpers
 # Open /__shrimpl/ui for the visual API UI.
+#
+# NOTE:
+# - Recommended: set env var SHRIMPL_OPENAI_API_KEY before running
+#     export SHRIMPL_OPENAI_API_KEY=sk-...
+# - For quick testing in the UI, you can call:
+#     GET /ai/set-key?key=sk-...
 
 server 3000
 
@@ -7,8 +13,15 @@ server 3000
 
 func greet(name): "Hello " + name
 
-# Numeric summary from three values
+# Numeric summary from three values (must be single-line expression)
 func stats_summary(a, b, c): "sum=" + sum(number(a), number(b), number(c)) + ", avg=" + avg(number(a), number(b), number(c)) + ", min=" + min(number(a), number(b), number(c)) + ", max=" + max(number(a), number(b), number(c))
+
+# OpenAI wrapper helpers
+func set_openai_api_key(key): openai_set_api_key(key)
+func set_openai_system(prompt): openai_set_system_prompt(prompt)
+func chat_with_openai(prompt): openai_chat(prompt)
+func chat_with_openai_json(prompt): openai_chat_json(prompt)
+func call_openai_mcp(server_id, tool_name, args_json): openai_mcp_call(server_id, tool_name, args_json)
 
 # --- Classes ---
 
@@ -17,59 +30,76 @@ class Math:
 
 # --- Basic endpoints ---
 
-endpoint GET "/":
-  "Welcome to Shrimpl! Visit /__shrimpl/ui for the API UI."
+endpoint GET "/": "Welcome to Shrimpl! Visit /__shrimpl/ui for the API UI."
 
-endpoint GET "/hello/:name":
-  greet(name)
+endpoint GET "/hello/:name": greet(name)
 
-endpoint GET "/double/:n":
-  Math.double(n)
+endpoint GET "/double/:n": Math.double(n)
 
-endpoint GET "/welcome":
-  "Hi " + upper(name) + "! Name length: " + len(name)
+endpoint GET "/welcome": "Hi " + upper(name) + "! Name length: " + len(name)
 
-endpoint GET "/info":
-  json { "lang": "Shrimpl", "version": 0.4, "ui": "/__shrimpl/ui" }
+endpoint GET "/info": json { "lang": "Shrimpl", "version": 0.5, "ui": "/__shrimpl/ui" }
 
 # Numeric analysis from query (?a=10&b=5&c=15)
-endpoint GET "/stats":
-  stats_summary(a, b, c)
+endpoint GET "/stats": stats_summary(a, b, c)
 
 # --- Vector / tensor demos ---
 
 # Returns a JSON vector, e.g. [1,2,3,4,5]
-endpoint GET "/vec":
-  vec(1, 2, 3, 4, 5)
+endpoint GET "/vec": vec(1, 2, 3, 4, 5)
 
 # Dot product example: /dot?ax=1&ay=2&bx=3&by=4
-endpoint GET "/dot":
-  tensor_dot(vec(number(ax), number(ay)), vec(number(bx), number(by)))
+endpoint GET "/dot": tensor_dot(vec(number(ax), number(ay)), vec(number(bx), number(by)))
 
 # --- DataFrame (pandas-ish) ---
 
 # Load a CSV from a URL into a DF JSON
 # Example: /load-data?url=https://people.sc.fsu.edu/~jburkardt/data/csv/hw_200.csv
-endpoint GET "/load-data":
-  df_from_csv(url)
+endpoint GET "/load-data": df_from_csv(url)
 
 # Peek first 5 rows of a DF (JSON string passed as query "df")
 # In practice you’d POST this; here it’s just a demo.
-endpoint GET "/head":
-  df_head(df, 5)
+endpoint GET "/head": df_head(df, 5)
 
 # Select columns from a DF: /select?df=...&columns=col1,col2
-endpoint GET "/select":
-  df_select(df, columns)
+endpoint GET "/select": df_select(df, columns)
 
 # --- Simple ML: linear regression ---
 
 # Train a tiny model from xs and ys (JSON arrays)
 # Example: /train-linreg?xs=[1,2,3,4]&ys=[2,4,6,8]
-endpoint GET "/train-linreg":
-  linreg_fit(xs, ys)
+endpoint GET "/train-linreg": linreg_fit(xs, ys)
 
 # Predict with trained model
 # Example: /predict-linreg?model={...}&x=10
-endpoint GET "/predict-linreg":
-  linreg_predict(model, number(x))
+endpoint GET "/predict-linreg": linreg_predict(model, number(x))
+
+# --- OpenAI / AI tooling demos ---
+
+# 0) Testing helper: set the OpenAI API key from a query parameter.
+#    /ai/set-key?key=sk-...
+endpoint GET "/ai/set-key": set_openai_api_key(key)
+
+# 1) Set the system prompt used by openai_chat / openai_chat_json.
+#    /ai/set-system?prompt=You+are+Shrimpl+assistant...
+endpoint GET "/ai/set-system": set_openai_system(prompt)
+
+# 2) Conversational endpoint that takes a user prompt as query:
+#    /ai/chat?prompt=Tell+me+about+Shrimpl
+endpoint GET "/ai/chat": chat_with_openai(prompt)
+
+# 3) Same, but returns the full JSON response as pretty JSON string:
+#    /ai/chat-json?prompt=Explain+vectors+for+kids
+endpoint GET "/ai/chat-json": chat_with_openai_json(prompt)
+
+# 4) Self-test endpoint: minimal call to check the bridge works.
+#    /ai/test-simple
+endpoint GET "/ai/test-simple": chat_with_openai("Say exactly: Shrimpl OpenAI bridge is working.")
+
+# 5) MCP / tools-style call (advanced). You pass the MCP server id,
+#    tool name, and arguments JSON as query parameters:
+#
+#    /ai/mcp-call?server_id=my-mcp&tool_name=myTool&args_json={"query":"hi"}
+#
+#    The concrete values depend on how your OpenAI MCP setup is defined.
+endpoint GET "/ai/mcp-call": call_openai_mcp(server_id, tool_name, args_json)

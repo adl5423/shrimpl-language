@@ -43,6 +43,14 @@
 //       xs_json, ys_json are JSON arrays, e.g. "[1,2,3]"
 //   linreg_predict(model_json, x) -> number prediction
 //
+//   OpenAI helpers (Responses / Chat style)
+//   --------------------------------------
+//   openai_set_api_key(key)          -> string "ok"
+//   openai_set_system_prompt(text)   -> string "ok"
+//   openai_chat(user_message)        -> string assistant text
+//   openai_chat_json(user_message)   -> string pretty JSON
+//   openai_mcp_call(server_id, tool_name, args_json) -> string pretty JSON
+//
 // All complex objects are passed as JSON strings in Shrimpl.
 // Kids only see numbers, strings, and function calls.
 
@@ -52,9 +60,15 @@ use std::collections::HashMap;
 use serde_json::{json, Value};
 use std::fmt;
 use std::io::Cursor;
+use std::{
+    env,
+    str::FromStr,
+    sync::{Mutex, OnceLock},
+};
 use ureq;
 
-// Runtime values for expressions
+// ---------- runtime values ----------
+
 #[derive(Debug, Clone)]
 enum ValueRuntime {
     Number(f64),
@@ -103,7 +117,83 @@ impl Env {
     }
 }
 
-// Public entry point for endpoint bodies
+// ---------- OpenAI config ----------
+
+#[derive(Debug, Clone)]
+struct OpenAIConfig {
+    api_key: Option<String>,
+    system_prompt: Option<String>,
+    model: String,
+    base_url: String,
+}
+
+static OPENAI_CONFIG: OnceLock<Mutex<OpenAIConfig>> = OnceLock::new();
+
+fn get_openai_config() -> &'static Mutex<OpenAIConfig> {
+    OPENAI_CONFIG.get_or_init(|| {
+        // Initial API key comes from env; can be overridden at runtime via openai_set_api_key.
+        let api_key = env::var("SHRIMPL_OPENAI_API_KEY")
+            .ok()
+            .or_else(|| env::var("OPENAI_API_KEY").ok());
+
+        Mutex::new(OpenAIConfig {
+            api_key,
+            system_prompt: None,
+            model: "gpt-4.1-mini".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+        })
+    })
+}
+
+fn openai_post(path: &str, body: &Value) -> Result<Value, String> {
+    let cfg_lock = get_openai_config();
+    let cfg = cfg_lock
+        .lock()
+        .map_err(|_| "OpenAI config mutex poisoned".to_string())?;
+
+    let api_key = cfg.api_key.clone().ok_or_else(|| {
+        "OpenAI API key is not set. \
+         Set SHRIMPL_OPENAI_API_KEY / OPENAI_API_KEY in the environment \
+         or call openai_set_api_key(key) from Shrimpl."
+            .to_string()
+    })?;
+
+    let base = cfg.base_url.clone();
+    drop(cfg); // do not hold the lock during the HTTP call
+
+    let url = if path.starts_with("http://") || path.starts_with("https://") {
+        path.to_string()
+    } else {
+        format!(
+            "{}/{}",
+            base.trim_end_matches('/'),
+            path.trim_start_matches('/')
+        )
+    };
+
+    let body_text =
+        serde_json::to_string(body).map_err(|e| format!("OpenAI: failed to encode body: {}", e))?;
+
+    let resp = ureq::post(&url)
+        .set("Authorization", &format!("Bearer {}", api_key))
+        .set("Content-Type", "application/json")
+        .send_string(&body_text);
+
+    match resp {
+        Ok(r) => {
+            let text = r
+                .into_string()
+                .map_err(|e| format!("OpenAI: failed to read body: {}", e))?;
+            let json_val: Value = serde_json::from_str(&text)
+                .map_err(|e| format!("OpenAI: response not valid JSON: {}", e))?;
+            Ok(json_val)
+        }
+        Err(err) => Err(format!("OpenAI HTTP error: {}", err)),
+    }
+}
+
+// ---------- public entry point for endpoint bodies ----------
+
 pub fn eval_body_expr(
     expr: &Expr,
     program: &Program,
@@ -118,7 +208,8 @@ pub fn eval_body_expr(
     Ok(value.to_string())
 }
 
-// Evaluate expression tree
+// ---------- expression evaluation ----------
+
 fn eval_expr(expr: &Expr, program: &Program, env: &Env) -> Result<ValueRuntime, String> {
     match expr {
         Expr::Number(n) => Ok(ValueRuntime::Number(*n)),
@@ -191,7 +282,8 @@ fn eval_function(
     eval_expr(&func.body, program, &env)
 }
 
-// Built-in functions for strings, numbers, HTTP, vectors/tensors, dataframes, ML
+// ---------- built-ins ----------
+
 fn eval_builtin(
     name: &str,
     args: &[Expr],
@@ -207,7 +299,7 @@ fn eval_builtin(
                 return Err("len(x) expects exactly 1 argument".to_string());
             }
             Ok(ValueRuntime::Number(
-                vals[0].to_string().chars().count() as f64
+                vals[0].to_string().chars().count() as f64,
             ))
         }
         "upper" => {
@@ -307,14 +399,19 @@ fn eval_builtin(
             let resp = ureq::get(&url).call();
             match resp {
                 Ok(r) => {
-                    let text = r.into_string().map_err(|e| {
-                        format!("http_get_json({}): failed to read body: {}", url, e)
-                    })?;
-                    let json_val: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
-                        format!("http_get_json({}): response was not valid JSON: {}", url, e)
-                    })?;
+                    let text = r
+                        .into_string()
+                        .map_err(|e| format!("http_get_json({}): failed to read body: {}", url, e))?;
+                    let json_val: serde_json::Value =
+                        serde_json::from_str(&text).map_err(|e| {
+                            format!(
+                                "http_get_json({}): response was not valid JSON: {}",
+                                url, e
+                            )
+                        })?;
                     Ok(ValueRuntime::Str(
-                        serde_json::to_string_pretty(&json_val).unwrap_or_else(|_| text.clone()),
+                        serde_json::to_string_pretty(&json_val)
+                            .unwrap_or_else(|_| text.clone()),
                     ))
                 }
                 Err(err) => Err(format!("http_get_json({}): {}", url, err)),
@@ -396,9 +493,9 @@ fn eval_builtin(
                 .has_headers(true)
                 .from_reader(Cursor::new(text.into_bytes()));
 
-            let headers_record = rdr
-                .headers()
-                .map_err(|e| format!("df_from_csv({}): failed to read headers: {}", url, e))?;
+            let headers_record = rdr.headers().map_err(|e| {
+                format!("df_from_csv({}): failed to read headers: {}", url, e)
+            })?;
             let headers: Vec<String> = headers_record.iter().map(|s| s.to_string()).collect();
 
             let mut rows_json: Vec<Value> = Vec::new();
@@ -555,9 +652,152 @@ fn eval_builtin(
             Ok(ValueRuntime::Number(y))
         }
 
+        // --- OpenAI / AI helpers ---
+        "openai_set_api_key" => {
+            if vals.len() != 1 {
+                return Err("openai_set_api_key(key) expects exactly 1 argument".to_string());
+            }
+            let key = vals[0].to_string();
+            let cfg_lock = get_openai_config();
+            let mut cfg = cfg_lock
+                .lock()
+                .map_err(|_| "OpenAI config mutex poisoned".to_string())?;
+            cfg.api_key = Some(key);
+            Ok(ValueRuntime::Str("ok".to_string()))
+        }
+        "openai_set_system_prompt" => {
+            if vals.len() != 1 {
+                return Err("openai_set_system_prompt(prompt) expects 1 argument".to_string());
+            }
+            let prompt = vals[0].to_string();
+            let cfg_lock = get_openai_config();
+            let mut cfg = cfg_lock
+                .lock()
+                .map_err(|_| "OpenAI config mutex poisoned".to_string())?;
+            cfg.system_prompt = Some(prompt);
+            Ok(ValueRuntime::Str("ok".to_string()))
+        }
+        "openai_chat" => {
+            if vals.len() != 1 {
+                return Err("openai_chat(user_message) expects 1 argument".to_string());
+            }
+            let user_msg = vals[0].to_string();
+
+            let cfg_lock = get_openai_config();
+            let cfg = cfg_lock
+                .lock()
+                .map_err(|_| "OpenAI config mutex poisoned".to_string())?;
+            let model = cfg.model.clone();
+            let system_prompt = cfg.system_prompt.clone();
+            drop(cfg);
+
+            let mut messages: Vec<Value> = Vec::new();
+            if let Some(sp) = system_prompt {
+                messages.push(json!({
+                    "role": "system",
+                    "content": sp
+                }));
+            }
+            messages.push(json!({
+                "role": "user",
+                "content": user_msg
+            }));
+
+            let payload = json!({
+                "model": model,
+                "messages": messages
+            });
+
+            let json_resp = openai_post("chat/completions", &payload)?;
+            let text = json_resp
+                .get("choices")
+                .and_then(|c| c.as_array())
+                .and_then(|arr| arr.get(0))
+                .and_then(|first| first.get("message"))
+                .and_then(|m| m.get("content"))
+                .and_then(|c| c.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            Ok(ValueRuntime::Str(text))
+        }
+        "openai_chat_json" => {
+            if vals.len() != 1 {
+                return Err("openai_chat_json(user_message) expects 1 argument".to_string());
+            }
+            let user_msg = vals[0].to_string();
+
+            let cfg_lock = get_openai_config();
+            let cfg = cfg_lock
+                .lock()
+                .map_err(|_| "OpenAI config mutex poisoned".to_string())?;
+            let model = cfg.model.clone();
+            let system_prompt = cfg.system_prompt.clone();
+            drop(cfg);
+
+            let mut messages: Vec<Value> = Vec::new();
+            if let Some(sp) = system_prompt {
+                messages.push(json!({
+                    "role": "system",
+                    "content": sp
+                }));
+            }
+            messages.push(json!({
+                "role": "user",
+                "content": user_msg
+            }));
+
+            let payload = json!({
+                "model": model,
+                "messages": messages
+            });
+
+            let json_resp = openai_post("chat/completions", &payload)?;
+            let txt = serde_json::to_string_pretty(&json_resp)
+                .unwrap_or_else(|_| json_resp.to_string());
+            Ok(ValueRuntime::Str(txt))
+        }
+        "openai_mcp_call" => {
+            if vals.len() != 3 {
+                return Err(
+                    "openai_mcp_call(server_id, tool_name, args_json) expects 3 arguments"
+                        .to_string(),
+                );
+            }
+            let server_id = vals[0].to_string();
+            let tool_name = vals[1].to_string();
+            let args_raw = vals[2].to_string();
+            let args_val: Value =
+                serde_json::from_str(&args_raw).unwrap_or_else(|_| json!({ "raw": args_raw }));
+
+            let cfg_lock = get_openai_config();
+            let cfg = cfg_lock
+                .lock()
+                .map_err(|_| "OpenAI config mutex poisoned".to_string())?;
+            let model = cfg.model.clone();
+            drop(cfg);
+
+            // This uses the Responses API in a generic way. You may need to
+            // adjust the exact shape based on your MCP/tool configuration.
+            let payload = json!({
+                "model": model,
+                "input": format!(
+                    "Call MCP tool '{}' on server '{}' with args: {}",
+                    tool_name, server_id, args_val
+                )
+            });
+
+            let json_resp = openai_post("responses", &payload)?;
+            let txt = serde_json::to_string_pretty(&json_resp)
+                .unwrap_or_else(|_| json_resp.to_string());
+            Ok(ValueRuntime::Str(txt))
+        }
+
         _ => Err(format!("Undefined function '{}'", name)),
     }
 }
+
+// ---------- helpers ----------
 
 // Try to coerce a value to a number when needed
 fn as_number(v: &ValueRuntime) -> Result<f64, String> {
@@ -600,11 +840,13 @@ fn eval_binary(
 
 // Helper: parse JSON array of numbers from a string
 fn parse_json_array_numbers(label: &str, text: &str) -> Result<Vec<f64>, String> {
-    let val: Value = serde_json::from_str(text)
-        .map_err(|e| format!("{}: not valid JSON array: {}", label, e))?;
-    let arr = val
-        .as_array()
-        .ok_or_else(|| format!("{}: JSON value is not an array", label))?;
+    let val: Value = Value::from_str(text).unwrap_or_else(|_| json!(text)); // fallback if not JSON
+    let arr = if let Some(arr) = val.as_array() {
+        arr
+    } else {
+        return Err(format!("{}: JSON value is not an array", label));
+    };
+
     let mut out = Vec::new();
     for v in arr {
         if let Some(n) = v.as_f64() {

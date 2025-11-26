@@ -66,6 +66,24 @@ fn main() -> Result<(), Box<dyn Error>> {
             let (source, program) = load_and_parse(&cli.file)?;
             // Avoid unused variable warning.
             let _ = source;
+
+            // Read the configured port from the Shrimpl program so we can tell
+            // the user exactly where the server will be listening.
+            let port = program.server.port;
+
+            // Friendly startup banner for `shrimpl --file app.shr run` (or just `shrimpl`).
+            println!();
+            println!("shr run");
+            println!("----------------------------------------");
+            println!("Shrimpl server is starting on http://localhost:{port}");
+            println!("Open that URL in your browser (for example:");
+            println!("  http://localhost:{port}/__shrimpl/ui");
+            println!("to explore and test your Shrimpl API).");
+            println!();
+            println!("Press Ctrl+C to shut down the server.");
+            println!("----------------------------------------");
+            println!();
+
             // Run the HTTP server using actix.
             actix_web::rt::System::new().block_on(run_server(program))?;
         }

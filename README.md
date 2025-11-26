@@ -2,16 +2,20 @@
 
 [![Shrimpl banner](assets/shrimpl_banner.png)](https://shrimpl.dev)
 
-
 ## Introduction
 
 Shrimpl is a small, beginner‑friendly programming language designed to bridge the gap between visual languages (like Scratch) and general‑purpose languages (like Python or JavaScript). It aims to be:
 
 * **Readable**: English‑like keywords, minimal punctuation, and indentation instead of braces.
 * **Approachable**: Designed so kids and new programmers can learn concepts gradually.
-* **Practical**: Powerful enough to build web APIs, perform data analysis, and run simple machine‑learning workflows.
+* **Practical**: Powerful enough to build web APIs, perform data analysis, run simple machine‑learning workflows, and now experiment with AI helpers powered by OpenAI.
 
 Shrimpl programs are interpreted by a Rust‑based runtime that can run on most platforms. A companion Language Server (LSP) and browser‑based API Studio make it easy to experiment, debug, and explore programs interactively.
+
+Shrimpl 0.5.2 adds optional **AI helpers** that allow endpoints to call OpenAI models using simple built‑in functions such as `openai_chat` and `openai_chat_json`. These helpers are designed so that:
+
+* Teachers or parents can configure an API key once (via environment variable or a setup call).
+* Students can use short, readable expressions to have Shrimpl "talk" to an AI model.
 
 ---
 
@@ -38,6 +42,7 @@ Shrimpl supports:
 * Functions and classes (with static methods)
 * Built‑in helpers for text, numbers, vectors/tensors, dataframes, and linear regression
 * HTTP client utilities for calling external APIs
+* Optional AI helpers for calling OpenAI models (chat‑style responses and JSON payloads)
 
 ### Safety
 
@@ -163,7 +168,9 @@ Endpoints declare HTTP routes. An endpoint has:
 
 * An **HTTP method**: `GET` or `POST`.
 * A **path**: a quoted string, optionally including path parameters like `"/hello/:name"`.
-* A **body**: an indented expression that determines the response.
+* A **body**: an expression that determines the response.
+
+The body expression can live on the same line as the endpoint or on the following indented line. Internally, Shrimpl parses the body as a normal expression, so you can call any built‑in or user‑defined function (including AI helpers like `openai_chat`).
 
 ### Basic Example
 
@@ -211,6 +218,29 @@ endpoint GET "/info":
 
 When using `json { ... }`, the body must be a **constant** JSON object (expressions are not evaluated inside the JSON literal).
 
+### AI‑Powered Endpoints (OpenAI Helpers)
+
+Shrimpl 0.5.2 introduces optional OpenAI helpers that let an endpoint call an AI model and return its answer. These helpers are available as **built‑in functions** that you can use anywhere you can write an expression.
+
+A minimal AI‑powered endpoint looks like this:
+
+```shrimpl
+server 3000
+
+endpoint GET "/chat/:msg":
+  openai_chat("User said: " + msg)
+```
+
+If an appropriate OpenAI API key is configured (see the AI Helpers section below), calling:
+
+```text
+GET /chat/Hello
+```
+
+will send the prompt `"User said: Hello"` to an OpenAI model and return the model’s reply as plain text.
+
+Because endpoint bodies are just expressions, you can combine AI helpers with other functions, such as formatting, numeric conversions, or even other API calls.
+
 ---
 
 ## Expressions
@@ -242,6 +272,14 @@ Names starting with a letter or underscore. Common sources:
 * Function call: `funcName(arg1, arg2)`
 * Class method call: `ClassName.methodName(arg1, arg2)`
 
+AI helpers follow the same rules. For example:
+
+```shrimpl
+openai_chat("Explain Shrimpl in one sentence.")
+```
+
+is just a function call whose result is a string.
+
 ---
 
 ## Variables and Data Types
@@ -256,17 +294,24 @@ Shrimpl is **dynamically typed**. Values can be:
 
 These functions convert between data types or operate on them:
 
-| Built‑in       | Description                                       |
-| -------------- | ------------------------------------------------- |
-| `number(x)`    | Convert string or number `x` to a floating‑point. |
-| `string(x)`    | Convert any value to a string.                    |
-| `len(x)`       | Length of a string.                               |
-| `upper(x)`     | Convert a string to uppercase.                    |
-| `lower(x)`     | Convert a string to lowercase.                    |
-| `sum(a,b,...)` | Sum of numbers.                                   |
-| `avg(a,b,...)` | Average of numbers.                               |
-| `min(a,b,...)` | Minimum of numbers.                               |
-| `max(a,b,...)` | Maximum of numbers.                               |
+| Built‑in                              | Description                                             |
+| ------------------------------------- | ------------------------------------------------------- |
+| `number(x)`                           | Convert string or number `x` to a floating‑point.       |
+| `string(x)`                           | Convert any value to a string.                          |
+| `len(x)`                              | Length of a string.                                     |
+| `upper(x)`                            | Convert a string to uppercase.                          |
+| `lower(x)`                            | Convert a string to lowercase.                          |
+| `sum(a,b,...)`                        | Sum of numbers.                                         |
+| `avg(a,b,...)`                        | Average of numbers.                                     |
+| `min(a,b,...)`                        | Minimum of numbers.                                     |
+| `max(a,b,...)`                        | Maximum of numbers.                                     |
+| `openai_set_api_key(k)`               | Set or override the OpenAI API key used by AI helpers.  |
+| `openai_set_system_prompt(p)`         | Set a global system prompt (role) for AI helpers.       |
+| `openai_chat(msg)`                    | Call an OpenAI chat model and return the reply as text. |
+| `openai_chat_json(msg)`               | Call an OpenAI chat model and return full JSON as text. |
+| `openai_mcp_call(server, tool, args)` | Experimental helper for Responses/MCP flows.            |
+
+The OpenAI helpers are described in more detail in the **AI Helpers (OpenAI Integration)** section below.
 
 ---
 
@@ -293,6 +338,16 @@ endpoint GET "/welcome/:name":
   greet(name) + "!"
 ```
 
+You can also wrap AI helpers inside functions so that students can call them with simpler signatures. For example:
+
+```shrimpl
+func tutor(topic):
+  openai_chat("Explain this topic for a beginner: " + topic)
+
+endpoint GET "/tutor/:topic":
+  tutor(topic)
+```
+
 ---
 
 ## Classes
@@ -315,6 +370,8 @@ Usage:
 endpoint GET "/double/:n":
   Math.double(number(n))
 ```
+
+You can also group AI helpers in a class if you want a more “object‑like” style, though the built‑ins are usually enough for beginner programs.
 
 ---
 
@@ -408,6 +465,132 @@ endpoint GET "/predict":
 
 ---
 
+## AI Helpers (OpenAI Integration)
+
+Shrimpl 0.5.2 adds **optional OpenAI helpers** that let programs talk to AI models using simple function calls. These helpers are meant to be used in educational settings where an adult configures an API key and students experiment with friendly prompts.
+
+> Important: AI helpers are optional. Shrimpl runs perfectly fine without any API key set. If no OpenAI key is configured and a program calls one of these helpers, the runtime will return an error message string instead of crashing.
+
+### Configuring the OpenAI API Key
+
+The OpenAI helpers look for an API key in this order:
+
+1. Environment variable `SHRIMPL_OPENAI_API_KEY`
+2. Environment variable `OPENAI_API_KEY`
+3. A key set at runtime via `openai_set_api_key("...")`
+
+The simplest setup for a workshop or classroom is to set an environment variable **before** running Shrimpl:
+
+```bash
+export SHRIMPL_OPENAI_API_KEY="sk‑example..."
+
+shrimpl --file app.shr run
+```
+
+Alternatively, you can call the helper inside your Shrimpl code (for example, in a setup endpoint that only teachers can hit):
+
+```shrimpl
+endpoint POST "/setup":
+  openai_set_api_key(secret)
+```
+
+In that pattern, the teacher would send a POST request with a `secret` parameter and the server would remember the key for later calls.
+
+### Setting a System Prompt (Role)
+
+AI models behave differently depending on their “system prompt” (sometimes called the role). Shrimpl exposes this via:
+
+```shrimpl
+openai_set_system_prompt("You are a friendly Shrimpl tutor for kids.")
+```
+
+Once this is set, calls to `openai_chat` and `openai_chat_json` will prepend that system message to the conversation, so the model consistently answers in that role.
+
+A typical pattern is to call this once when the program starts or in a dedicated configuration endpoint:
+
+```shrimpl
+endpoint POST "/configure_ai":
+  openai_set_system_prompt("Explain things clearly in one or two paragraphs.")
+```
+
+### `openai_chat(message)`
+
+`openai_chat` is the most student‑friendly helper. It:
+
+1. Builds a chat request with the current system prompt (if any) and the user message.
+2. Sends it to an OpenAI chat model (by default `gpt‑4.1‑mini`).
+3. Returns the model’s reply text as a normal Shrimpl string.
+
+Example endpoint:
+
+```shrimpl
+server 3000
+
+endpoint GET "/chat/:msg":
+  openai_chat("Student says: " + msg)
+```
+
+If you call:
+
+```text
+GET /chat/What%20is%20a%20variable%3F
+```
+
+the endpoint will return a short explanation generated by the model.
+
+Because `openai_chat` returns a string, you can further process or format it with other functions, such as `upper`, `lower`, or `string`.
+
+### `openai_chat_json(message)`
+
+Sometimes you want to see the **full JSON response** from the model (for debugging, teaching, or building custom tools). `openai_chat_json` works like `openai_chat`, but returns the whole JSON response as a pretty‑printed string.
+
+Example:
+
+```shrimpl
+endpoint GET "/raw_chat/:msg":
+  openai_chat_json(msg)
+```
+
+This is useful in classrooms when you want to show students what the model actually returns: choices, usage, and other metadata.
+
+### `openai_mcp_call(server_id, tool_name, args)` (Experimental)
+
+`openai_mcp_call` is an **experimental helper** meant for more advanced setups where Shrimpl is used together with tool‑calling or MCP‑style servers.
+
+Its signature is:
+
+```shrimpl
+openai_mcp_call(server, tool, args)
+```
+
+* `server`: a string that identifies which tool server or configuration to talk to.
+* `tool`: the name of the tool to call.
+* `args`: a string containing JSON for the tool arguments.
+
+The helper formats these into a prompt and sends a request using OpenAI’s Responses API. The raw JSON result is returned as a pretty‑printed string.
+
+Example (simplified):
+
+```shrimpl
+endpoint POST "/tools/query":
+  openai_mcp_call("math‑server", "solve_equation", args)
+```
+
+For most beginner and classroom scenarios, you can ignore this helper and focus on `openai_chat` and `openai_chat_json`.
+
+### Safety and Error Messages
+
+If something goes wrong during an AI call (for example, no API key is configured or the network fails), the helper will return a string that describes the error. You can either show this directly to the user or wrap it in your own message:
+
+```shrimpl
+endpoint GET "/safe_chat/:msg":
+  "AI says: " + openai_chat(msg)
+```
+
+Teachers may also want to guide students on responsible prompt writing and explain that AI outputs are not always correct.
+
+---
+
 ## JSON Responses
 
 To return JSON, prefix the body with `json` and provide a constant JSON object:
@@ -419,6 +602,8 @@ endpoint GET "/info":
 
 * The interpreter does **not** evaluate expressions inside `json { ... }`.
 * Use this style for configuration‑like responses or metadata.
+
+For AI‑driven endpoints, the most common pattern is to return text (`openai_chat`) or pretty‑printed JSON (`openai_chat_json`). If you need more structured output, you can use `openai_chat_json` and then post‑process the JSON in another system.
 
 ---
 
@@ -436,6 +621,8 @@ Diagnostics appear in several places:
 1. **Command line** via `shrimpl --file app.shr check`.
 2. **API Studio** (browser UI) under the “Diagnostics” panel.
 3. **Editors** that use the Shrimpl LSP (listed below), using standard LSP diagnostics.
+
+AI helpers are just built‑in functions, so they participate in diagnostics the same way as any other call. For example, a parameter like `:prompt` that is never passed to `openai_chat(prompt)` will be flagged as unused.
 
 ---
 
@@ -471,6 +658,12 @@ The UI provides:
 
 This UI is designed for learners who benefit from immediate feedback: change code, refresh the page, and see how behavior and diagnostics change.
 
+When experimenting with AI helpers, the API Studio is a convenient way to:
+
+* Try different prompts quickly.
+* Compare responses when you change the system prompt.
+* Show students how HTTP requests and AI responses relate.
+
 ---
 
 ## Language Server Protocol (LSP) Support
@@ -496,6 +689,8 @@ The Shrimpl LSP currently implements:
 
   * Exposes servers, endpoints, functions, and classes as `DocumentSymbol`s.
   * Lets editors show an outline/tree view for `.shr` files.
+
+Future versions of the LSP may provide richer hints for AI helpers (for example, showing a short description when you hover over `openai_chat`).
 
 ### Running the LSP Server
 
@@ -562,6 +757,7 @@ These examples are intended as starting points; you can customize paths, command
 * **Handle errors gracefully**
 
   * Consider returning error strings or JSON objects when user input is missing or invalid.
+  * For AI helpers, treat unexpected responses or error messages as an opportunity to teach debugging and resilience.
 
 * **Comment intention, not mechanics**
 
@@ -571,6 +767,7 @@ These examples are intended as starting points; you can customize paths, command
 
   * Indent with two spaces.
   * Stick to one naming convention for endpoints and parameters.
+  * Use a consistent pattern for AI endpoints (for example, always prefix with `/ai/` or `/chat/`).
 
 ---
 
@@ -582,6 +779,7 @@ Shrimpl’s implementation (in this repository) is roughly organized as follows:
 
   * Tokenizes and parses `.shr` source into an abstract syntax tree (AST).
   * The AST types live in `parser/ast.rs`.
+  * Endpoint bodies are parsed as general expressions, which means AI helpers like `openai_chat` and `openai_chat_json` are treated just like any other function call.
 
 * **AST / Core Model (`src/ast.rs`, `src/parser/ast.rs`)**
 
@@ -592,6 +790,7 @@ Shrimpl’s implementation (in this repository) is roughly organized as follows:
   * Evaluates Shrimpl expressions.
   * Implements HTTP server wiring and endpoint dispatch.
   * Integrates built‑in libraries (HTTP client, vectors, tensors, dataframes, linear regression).
+  * Contains the AI helper logic: a small configuration layer that reads the OpenAI API key from the environment or from `openai_set_api_key`, and helper functions that send chat/JSON requests to the OpenAI API.
 
 * **Docs and Diagnostics (`src/docs.rs`)**
 
@@ -601,6 +800,7 @@ Shrimpl’s implementation (in this repository) is roughly organized as follows:
 * **CLI / Entry Point (`src/main.rs`)**
 
   * Parses command‑line flags such as `--file`, `run`, `check`, `diagnostics`.
+  * Prints a small startup banner when running a server, including the URL of the API Studio.
   * Invokes the interpreter or diagnostics mode accordingly.
 
 * **Language Server (`src/bin/shrimpl_lsp.rs`)**
@@ -619,7 +819,7 @@ Shrimpl’s implementation (in this repository) is roughly organized as follows:
   * Fetches schema, diagnostics, and source from HTTP endpoints exposed by the interpreter.
   * Renders interactive panels in the browser using vanilla HTML/CSS/JS.
 
-This architecture keeps the **language core** (parser + interpreter + docs) separate from **presentation layers** (CLI, LSP, API Studio, editor plugins).
+This architecture keeps the **language core** (parser + interpreter + docs) separate from **presentation layers** (CLI, LSP, API Studio, editor plugins). The AI helpers live in the interpreter layer and are exposed to programs as simple built‑in functions, so teachers and students can use them without needing to know anything about HTTP clients, JSON payloads, or authentication headers.
 
 ---
 
@@ -630,12 +830,13 @@ Shrimpl 0.5 combines the simplicity of visual programming with the power of mode
 * Server‑side programming and HTTP APIs
 * Data manipulation using dataframes and vectors
 * Basic machine learning with linear regression
+* AI‑assisted programming using OpenAI helpers for chat‑style responses and JSON payloads
 
 The interpreter, diagnostics engine, API Studio, and LSP work together to create a friendly learning environment. Learners can:
 
 1. Write simple `.shr` files.
 2. See immediate results in the browser.
 3. Get real‑time feedback from their editor.
-4. Grow into more advanced topics (dataframes, ML, external APIs) without leaving Shrimpl.
+4. Grow into more advanced topics (dataframes, ML, external APIs, AI helpers) without leaving Shrimpl.
 
 For further examples and community discussion, visit the project repository, share your own Shrimpl programs, and help shape future versions of the language.

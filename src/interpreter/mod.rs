@@ -5,5 +5,6 @@
 
 pub mod eval;
 pub mod http;
+pub mod openai;
 
 // pub use http::run;

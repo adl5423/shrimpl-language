@@ -1,12 +1,14 @@
 // src/parser/mod.rs
 //
-// Shrimpl v0.2+ parser.
+// Shrimpl v0.5 parser (line-based).
 // Features:
 // - server <port>
 // - endpoint METHOD "/path"[: <body>]
 //   Body can be on same line after colon or next non-empty line.
 //   Body is either:
-//     - Text expression (variables, +, -, *, /, calls, class.method calls)
+//     - Text expression (variables, +, -, *, /, calls, class.method calls,
+//       including OpenAI helpers like `openai_chat("...")` and
+//       `openai_set_system_prompt("...")`)
 //     - JSON: json { "message": "Hello" }  (treated as raw JSON string)
 // - func name(a, b): expr
 // - class Name:
