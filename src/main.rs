@@ -1,6 +1,5 @@
 use clap::{Parser, Subcommand};
-use std::error::Error;
-use std::fs;
+use std::{env, error::Error, fs};
 use std::process::{Command, Stdio};
 
 mod ast;
@@ -10,6 +9,55 @@ mod parser;
 
 use interpreter::http::run as run_server;
 use parser::parse_program;
+
+/// Shrimpl version (from Cargo.toml)
+const SHRIMPL_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// ASCII banner shown when running `shrimpl` with no arguments.
+const SHRIMPL_ASCII_BANNER: &str = r#"
+:'######::'##::::'##:'########::'####:'##::::'##:'########::'##:::::::
+'##... ##: ##:::: ##: ##.... ##:. ##:: ###::'###: ##.... ##: ##:::::::
+ ##:::..:: ##:::: ##: ##:::: ##:: ##:: ####'####: ##:::: ##: ##:::::::
+. ######:: #########: ########::: ##:: ## ### ##: ########:: ##:::::::
+:..... ##: ##.... ##: ##.. ##:::: ##:: ##. #: ##: ##.....::: ##:::::::
+'##::: ##: ##:::: ##: ##::. ##::: ##:: ##:.:: ##: ##:::::::: ##:::::::
+. ######:: ##:::: ##: ##:::. ##:'####: ##:::: ##: ##:::::::: ########:
+:......:::..:::::..::..:::::..::....::..:::::..::..:::::::::........::
+
+             ~ Shrimpl Language v{SHRIMPL_VERSION}~
+"#;
+
+/// Print the friendly welcome screen for `shrimpl` with no args.
+fn print_welcome_screen() {
+    println!("{SHRIMPL_ASCII_BANNER}");
+    println!("Welcome to Shrimpl v{SHRIMPL_VERSION} :D");
+    println!();
+    println!("Shrimpl is an all-ages language for APIs, data, ML, and AI.");
+    println!();
+    println!("Common commands:");
+    println!("  shrimpl --file app.shr run");
+    println!("      Run the Shrimpl HTTP server defined in app.shr");
+    println!();
+    println!("  shrimpl --file app.shr check");
+    println!("      Parse and check the Shrimpl program (no server start).");
+    println!();
+    println!("  shrimpl --file app.shr schema");
+    println!("      Print JSON schema for Shrimpl API Studio.");
+    println!();
+    println!("  shrimpl --file app.shr diagnostics");
+    println!("      Print static diagnostics JSON for endpoints/functions.");
+    println!();
+    println!("  shrimpl lsp");
+    println!("      Start the Shrimpl language server (LSP) using `shrimpl-lsp`.");
+    println!("      Use `shrimpl lsp --exe path/to/shrimpl-lsp` to point at a custom binary.");
+    println!();
+    println!("Tips:");
+    println!("  • After `shrimpl --file app.shr run`, open:");
+    println!("        http://localhost:3000/__shrimpl/ui");
+    println!("    to use the Shrimpl API Studio visual UI.");
+    println!("  • Set SHRIMPL_OPENAI_API_KEY before running if you use OpenAI helpers.");
+    println!();
+}
 
 /// Shrimpl CLI
 #[derive(Parser)]
@@ -50,7 +98,24 @@ enum Commands {
     },
 }
 
+/// Entry point that decides between the welcome screen and the real CLI.
 fn main() -> Result<(), Box<dyn Error>> {
+    let arg_count = env::args().count();
+
+    // If the user just types `shrimpl` with no additional arguments,
+    // show the ASCII banner + friendly help instead of immediately
+    // starting the server.
+    if arg_count == 1 {
+        print_welcome_screen();
+        return Ok(());
+    }
+
+    // Otherwise, run the normal CLI behavior.
+    run_cli()
+}
+
+/// Actual CLI implementation (what used to be `main`).
+fn run_cli() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
     // Default behavior with no subcommand is the same as `run`.
@@ -64,21 +129,21 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         Commands::Run => {
             let (source, program) = load_and_parse(&cli.file)?;
-            // Avoid unused variable warning.
+            // Avoid unused variable warning (source is also used by docs UI endpoint).
             let _ = source;
 
             // Read the configured port from the Shrimpl program so we can tell
             // the user exactly where the server will be listening.
             let port = program.server.port;
 
-            // Friendly startup banner for `shrimpl --file app.shr run` (or just `shrimpl`).
+            // Friendly startup banner for `shrimpl --file app.shr run`.
             println!();
-            println!("shr run");
+            println!("shrimpl run");
             println!("----------------------------------------");
             println!("Shrimpl server is starting on http://localhost:{port}");
-            println!("Open that URL in your browser (for example:");
-            println!("  http://localhost:{port}/__shrimpl/ui");
-            println!("to explore and test your Shrimpl API).");
+            println!("Open one of these in your browser:");
+            println!("  • http://localhost:{port}/           (root endpoint)");
+            println!("  • http://localhost:{port}/__shrimpl/ui  (API Studio UI)");
             println!();
             println!("Press Ctrl+C to shut down the server.");
             println!("----------------------------------------");

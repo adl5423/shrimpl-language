@@ -51,8 +51,16 @@
 //   openai_chat_json(user_message)   -> string pretty JSON
 //   openai_mcp_call(server_id, tool_name, args_json) -> string pretty JSON
 //
+//   Generic config + env helpers
+//   ----------------------------
+//   config_set(key, value)          -> string "ok"
+//   config_get(key)                 -> stored value or ""
+//   config_get(key, default)        -> stored value or default
+//   config_has(key)                 -> bool
+//   env(name)                       -> string env var value or ""
+//
 // All complex objects are passed as JSON strings in Shrimpl.
-// Kids only see numbers, strings, and function calls.
+// Kids only see numbers, strings, booleans, and function calls.
 
 use crate::parser::ast::{BinOp, Expr, FunctionDef, Program};
 use std::collections::HashMap;
@@ -73,6 +81,7 @@ use ureq;
 enum ValueRuntime {
     Number(f64),
     Str(String),
+    Bool(bool),
 }
 
 impl fmt::Display for ValueRuntime {
@@ -86,6 +95,7 @@ impl fmt::Display for ValueRuntime {
                 }
             }
             ValueRuntime::Str(s) => write!(f, "{}", s),
+            ValueRuntime::Bool(b) => write!(f, "{}", b),
         }
     }
 }
@@ -115,6 +125,19 @@ impl Env {
     fn get(&self, name: &str) -> Option<ValueRuntime> {
         self.vars.get(name).cloned()
     }
+}
+
+// ---------- generic app config store ----------
+
+#[derive(Debug, Default)]
+struct AppConfig {
+    entries: HashMap<String, ValueRuntime>,
+}
+
+static APP_CONFIG: OnceLock<Mutex<AppConfig>> = OnceLock::new();
+
+fn get_app_config() -> &'static Mutex<AppConfig> {
+    APP_CONFIG.get_or_init(|| Mutex::new(AppConfig::default()))
 }
 
 // ---------- OpenAI config ----------
@@ -214,14 +237,18 @@ fn eval_expr(expr: &Expr, program: &Program, env: &Env) -> Result<ValueRuntime, 
     match expr {
         Expr::Number(n) => Ok(ValueRuntime::Number(*n)),
         Expr::Str(s) => Ok(ValueRuntime::Str(s.clone())),
+        Expr::Bool(b) => Ok(ValueRuntime::Bool(*b)),
+
         Expr::Var(name) => env
             .get(name)
             .ok_or_else(|| format!("Unknown variable '{}'", name)),
+
         Expr::Binary { left, op, right } => {
             let lv = eval_expr(left, program, env)?;
             let rv = eval_expr(right, program, env)?;
             eval_binary(&lv, op, &rv)
         }
+
         Expr::Call { name, args } => {
             // First, user-defined functions
             if let Some(func) = program.functions.get(name) {
@@ -232,6 +259,7 @@ fn eval_expr(expr: &Expr, program: &Program, env: &Env) -> Result<ValueRuntime, 
                 eval_builtin(name, args, program, env)
             }
         }
+
         Expr::MethodCall {
             class_name,
             method_name,
@@ -247,6 +275,46 @@ fn eval_expr(expr: &Expr, program: &Program, env: &Env) -> Result<ValueRuntime, 
                 .ok_or_else(|| format!("Class '{}' has no method '{}'", class_name, method_name))?;
             let arg_vals = eval_args(args, program, env)?;
             eval_function(method, arg_vals, program, env)
+        }
+
+        Expr::If {
+            branches,
+            else_branch,
+        } => {
+            for (cond_expr, body_expr) in branches {
+                let cond_val = eval_expr(cond_expr, program, env)?;
+                if as_bool(&cond_val)? {
+                    return eval_expr(body_expr, program, env);
+                }
+            }
+
+            if let Some(else_expr) = else_branch {
+                eval_expr(else_expr, program, env)
+            } else {
+                // Default value for an if-expression with no branch taken.
+                Ok(ValueRuntime::Str(String::new()))
+            }
+        }
+
+        Expr::Repeat { count, body } => {
+            let count_val = eval_expr(count, program, env)?;
+            let n = as_number(&count_val)?;
+            if n < 0.0 {
+                return Err("repeat N times: N must be non-negative".to_string());
+            }
+
+            // Hard safety bound to avoid runaway loops in teaching contexts.
+            let mut steps = n.floor() as usize;
+            if steps > 10_000 {
+                return Err("repeat N times: N is too large (max 10_000)".to_string());
+            }
+
+            let mut last = ValueRuntime::Str(String::new());
+            for _ in 0..steps {
+                last = eval_expr(body, program, env)?;
+            }
+
+            Ok(last)
         }
     }
 }
@@ -374,6 +442,62 @@ fn eval_builtin(
                 }
             }
             Ok(ValueRuntime::Number(best))
+        }
+
+        // --- generic config + env helpers ---
+        "config_set" => {
+            if vals.len() != 2 {
+                return Err("config_set(key, value) expects 2 arguments".to_string());
+            }
+            let key = vals[0].to_string();
+            let value = vals[1].clone();
+
+            let lock = get_app_config();
+            let mut cfg = lock
+                .lock()
+                .map_err(|_| "App config mutex poisoned".to_string())?;
+            cfg.entries.insert(key, value);
+
+            Ok(ValueRuntime::Str("ok".to_string()))
+        }
+        "config_get" => {
+            // config_get(key) or config_get(key, default)
+            if vals.is_empty() || vals.len() > 2 {
+                return Err("config_get(key, [default]) expects 1 or 2 arguments".to_string());
+            }
+            let key = vals[0].to_string();
+            let lock = get_app_config();
+            let cfg = lock
+                .lock()
+                .map_err(|_| "App config mutex poisoned".to_string())?;
+
+            if let Some(v) = cfg.entries.get(&key) {
+                Ok(v.clone())
+            } else if vals.len() == 2 {
+                Ok(vals[1].clone())
+            } else {
+                Ok(ValueRuntime::Str(String::new()))
+            }
+        }
+        "config_has" => {
+            if vals.len() != 1 {
+                return Err("config_has(key) expects exactly 1 argument".to_string());
+            }
+            let key = vals[0].to_string();
+            let lock = get_app_config();
+            let cfg = lock
+                .lock()
+                .map_err(|_| "App config mutex poisoned".to_string())?;
+            let exists = cfg.entries.contains_key(&key);
+            Ok(ValueRuntime::Bool(exists))
+        }
+        "env" => {
+            if vals.len() != 1 {
+                return Err("env(name) expects exactly 1 argument".to_string());
+            }
+            let name = vals[0].to_string();
+            let value = env::var(&name).unwrap_or_else(|_| String::new());
+            Ok(ValueRuntime::Str(value))
         }
 
         // --- HTTP client helpers ---
@@ -801,6 +925,20 @@ fn as_number(v: &ValueRuntime) -> Result<f64, String> {
         ValueRuntime::Str(s) => s
             .parse::<f64>()
             .map_err(|_| format!("Value '{}' is not a number", s)),
+        ValueRuntime::Bool(b) => Err(format!("Value '{}' is not a number", b)),
+    }
+}
+
+// Coerce a value to a boolean (truthiness rules)
+//
+// - Bool: use the value directly.
+// - Number: 0.0 is false, anything else is true.
+// - String: empty "" is false, anything else is true.
+fn as_bool(v: &ValueRuntime) -> Result<bool, String> {
+    match v {
+        ValueRuntime::Bool(b) => Ok(*b),
+        ValueRuntime::Number(n) => Ok(*n != 0.0),
+        ValueRuntime::Str(s) => Ok(!s.is_empty()),
     }
 }
 
@@ -810,10 +948,15 @@ fn eval_binary(
     right: &ValueRuntime,
 ) -> Result<ValueRuntime, String> {
     match op {
+        // arithmetic --------------------------------------------------------
         BinOp::Add => match (left, right) {
-            (ValueRuntime::Number(a), ValueRuntime::Number(b)) => Ok(ValueRuntime::Number(a + b)),
+            (ValueRuntime::Number(a), ValueRuntime::Number(b)) => {
+                Ok(ValueRuntime::Number(a + b))
+            }
+            // String concatenation fallback: "foo" + x
             _ => Ok(ValueRuntime::Str(format!("{}{}", left, right))),
         },
+
         BinOp::Sub | BinOp::Mul | BinOp::Div => {
             let a = as_number(left)?;
             let b = as_number(right)?;
@@ -829,6 +972,51 @@ fn eval_binary(
                 _ => unreachable!(),
             };
             Ok(ValueRuntime::Number(res))
+        }
+
+        // comparisons -------------------------------------------------------
+        BinOp::Eq => {
+            let result = match (left, right) {
+                (ValueRuntime::Number(a), ValueRuntime::Number(b)) => a == b,
+                (ValueRuntime::Bool(a), ValueRuntime::Bool(b)) => a == b,
+                _ => left.to_string() == right.to_string(),
+            };
+            Ok(ValueRuntime::Bool(result))
+        }
+
+        BinOp::Ne => {
+            let result = match (left, right) {
+                (ValueRuntime::Number(a), ValueRuntime::Number(b)) => a != b,
+                (ValueRuntime::Bool(a), ValueRuntime::Bool(b)) => a != b,
+                _ => left.to_string() != right.to_string(),
+            };
+            Ok(ValueRuntime::Bool(result))
+        }
+
+        BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
+            let a = as_number(left)?;
+            let b = as_number(right)?;
+            let result = match op {
+                BinOp::Lt => a < b,
+                BinOp::Le => a <= b,
+                BinOp::Gt => a > b,
+                BinOp::Ge => a >= b,
+                _ => unreachable!(),
+            };
+            Ok(ValueRuntime::Bool(result))
+        }
+
+        // boolean logic -----------------------------------------------------
+        BinOp::And => {
+            let a = as_bool(left)?;
+            let b = as_bool(right)?;
+            Ok(ValueRuntime::Bool(a && b))
+        }
+
+        BinOp::Or => {
+            let a = as_bool(left)?;
+            let b = as_bool(right)?;
+            Ok(ValueRuntime::Bool(a || b))
         }
     }
 }

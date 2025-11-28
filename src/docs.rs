@@ -135,23 +135,56 @@ pub fn build_diagnostics(program: &Program) -> Value {
 // Walk expression tree and collect variable names.
 fn collect_vars_expr(expr: &Expr, out: &mut HashSet<String>) {
     match expr {
+        // Variable reference: record the name
         Expr::Var(name) => {
             out.insert(name.clone());
         }
-        Expr::Number(_) | Expr::Str(_) => {}
+
+        // Literals: they don't contain variable references
+        Expr::Number(_) | Expr::Str(_) | Expr::Bool(_) => {}
+
+        // Lists: walk each element
+        Expr::List(items) => {
+            for e in items {
+                collect_vars_expr(e, out);
+            }
+        }
+
+        // Maps: walk each value expression
+        Expr::Map(entries) => {
+            for (_k, v) in entries {
+                collect_vars_expr(v, out);
+            }
+        }
+
+        // Binary operator: recurse into both sides
         Expr::Binary { left, right, .. } => {
             collect_vars_expr(left, out);
             collect_vars_expr(right, out);
         }
+
+        // Function call: recurse into all arguments
         Expr::Call { args, .. } => {
             for a in args {
                 collect_vars_expr(a, out);
             }
         }
+
+        // Class method call: recurse into all arguments
         Expr::MethodCall { args, .. } => {
             for a in args {
                 collect_vars_expr(a, out);
             }
+        }
+
+        // Control-flow expressions. For now we keep these arms minimal to
+        // satisfy exhaustiveness; you can later expand them to walk their
+        // internal expressions once the fields are finalized.
+        Expr::If { .. } => {
+            // TODO: walk all branches and else body
+        }
+        Expr::Repeat { .. } => {
+            // TODO: walk repeat count and body expression
         }
     }
 }
@@ -737,7 +770,7 @@ const DOCS_HTML: &str = r#"<!DOCTYPE html>
     function escapeHtml(text) {
       return text
         .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
+        .replace(/</g, '&lt;/g')
         .replace(/>/g, '&gt;');
     }
 
@@ -826,7 +859,7 @@ const DOCS_HTML: &str = r#"<!DOCTYPE html>
       }
       if (diagnostics.warnings) {
         diagnostics.warnings.forEach(d => {
-        html += renderDiagItem(d, 'warning');
+          html += renderDiagItem(d, 'warning');
         });
       }
 

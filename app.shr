@@ -23,6 +23,40 @@ func chat_with_openai(prompt): openai_chat(prompt)
 func chat_with_openai_json(prompt): openai_chat_json(prompt)
 func call_openai_mcp(server_id, tool_name, args_json): openai_mcp_call(server_id, tool_name, args_json)
 
+# --- New control-flow / boolean / repeat helpers ---
+
+# 1) Age classification using if / elif / else and numeric comparisons.
+#    Example:
+#      /age-category?age=10  -> "child"
+#      /age-category?age=15  -> "teen"
+#      /age-category?age=30  -> "adult"
+func classify_age(age): if number(age) < 13: "child" elif number(age) < 18: "teen" else: "adult"
+
+# 2) Boolean + logical operators:
+#    - number(age) >= 18
+#    - upper(country) == "US"
+#    - and / or
+#
+#    Examples:
+#      /adult-us?age=20&country=US  -> "adult-us"
+#      /adult-us?age=20&country=ca  -> "adult-non-us"
+#      /adult-us?age=16&country=US  -> "not-adult"
+func describe_adult_us(age, country): if number(age) >= 18 and upper(country) == "US": "adult-us" elif number(age) >= 18: "adult-non-us" else: "not-adult"
+
+# 3) Simple truthiness demo using booleans.
+#    "yes" -> true, anything else -> false
+#    Endpoint returns "true" or "false" as a string.
+func flag_to_bool(flag): if flag == "yes": true else: false
+
+# 4) repeat N times: loop expression demo.
+#    Returns the last value of the body expression, but in this case we
+#    build up a concatenated greeting by using string concatenation inside
+#    the loop body.
+#
+#    Example:
+#      /repeat-greet?name=Ana&n=3 -> "Hello Ana! Hello Ana! Hello Ana!"
+func repeat_greet(name, n): repeat number(n) times: "Hello " + name + "! "
+
 # --- Classes ---
 
 class Math:
@@ -36,7 +70,14 @@ endpoint GET "/hello/:name": greet(name)
 
 endpoint GET "/double/:n": Math.double(n)
 
-endpoint GET "/welcome": "Hi " + upper(name) + "! Name length: " + len(name)
+# Use an if / else expression to make the welcome more robust:
+# - If "name" is empty or missing, show a generic greeting.
+# - Otherwise, shout the name and show the length.
+#
+# Examples:
+#   /welcome?name=aisen  -> "Hi AISEN! Name length: 5"
+#   /welcome             -> "Hi there! No name provided."
+endpoint GET "/welcome": if name == "": "Hi there! No name provided." else: "Hi " + upper(name) + "! Name length: " + len(name)
 
 endpoint GET "/info": json { "lang": "Shrimpl", "version": 0.5, "ui": "/__shrimpl/ui" }
 
@@ -103,3 +144,17 @@ endpoint GET "/ai/test-simple": chat_with_openai("Say exactly: Shrimpl OpenAI br
 #
 #    The concrete values depend on how your OpenAI MCP setup is defined.
 endpoint GET "/ai/mcp-call": call_openai_mcp(server_id, tool_name, args_json)
+
+# --- New endpoints to exercise control flow directly ---
+
+# /age-category?age=...
+endpoint GET "/age-category": classify_age(age)
+
+# /adult-us?age=...&country=...
+endpoint GET "/adult-us": describe_adult_us(age, country)
+
+# /flag?flag=yes|no
+endpoint GET "/flag": flag_to_bool(flag)
+
+# /repeat-greet?name=...&n=...
+endpoint GET "/repeat-greet": repeat_greet(name, n)
