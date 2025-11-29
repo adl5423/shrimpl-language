@@ -142,7 +142,9 @@ fn tokenize_expr(s: &str) -> Result<Vec<Token>, String> {
                 i += 1;
             }
             '.' => {
-                tokens.push(Token { kind: TokKind::Dot });
+                tokens.push(Token {
+                    kind: TokKind::Dot,
+                });
                 i += 1;
             }
             ':' => {
@@ -179,19 +181,27 @@ fn tokenize_expr(s: &str) -> Result<Vec<Token>, String> {
             }
             '<' => {
                 if i + 1 < chars.len() && chars[i + 1] == '=' {
-                    tokens.push(Token { kind: TokKind::Le });
+                    tokens.push(Token {
+                        kind: TokKind::Le,
+                    });
                     i += 2;
                 } else {
-                    tokens.push(Token { kind: TokKind::Lt });
+                    tokens.push(Token {
+                        kind: TokKind::Lt,
+                    });
                     i += 1;
                 }
             }
             '>' => {
                 if i + 1 < chars.len() && chars[i + 1] == '=' {
-                    tokens.push(Token { kind: TokKind::Ge });
+                    tokens.push(Token {
+                        kind: TokKind::Ge,
+                    });
                     i += 2;
                 } else {
-                    tokens.push(Token { kind: TokKind::Gt });
+                    tokens.push(Token {
+                        kind: TokKind::Gt,
+                    });
                     i += 1;
                 }
             }
@@ -223,8 +233,7 @@ fn tokenize_expr(s: &str) -> Result<Vec<Token>, String> {
                 if c.is_ascii_alphabetic() || c == '_' {
                     let start = i;
                     i += 1;
-                    while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_')
-                    {
+                    while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
                         i += 1;
                     }
                     let ident: String = chars[start..i].iter().collect();
@@ -600,7 +609,12 @@ impl ExprParser {
 
             match self.bump() {
                 Some(TokKind::Colon) => {}
-                other => return Err(format!("Expected ':' after map key, found {:?}", other)),
+                other => {
+                    return Err(format!(
+                        "Expected ':' after map key, found {:?}",
+                        other
+                    ))
+                }
             }
 
             let value_expr = self.parse_expr()?;
