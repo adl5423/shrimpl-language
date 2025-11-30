@@ -73,8 +73,6 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 use ureq;
-
-
 // ---------- runtime values ----------
 
 #[derive(Debug, Clone)]
