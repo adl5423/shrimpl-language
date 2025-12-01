@@ -1,21 +1,133 @@
-MIT License
+Shrimpl Language License (SLL-1.0)
 
 Copyright (c) 2025 Aisen D. Lopez-Ramos
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+of this software and associated documentation files (the "Software"), to
+use, copy, modify, merge, publish, and distribute the Software, and to
+permit persons to whom the Software is furnished to do so, subject to the
+following conditions:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. Definitions
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+   1.1. "Shrimpl" means the Shrimpl programming language, including its
+        language specification, standard libraries, reference
+        implementations (such as interpreters, compilers, and tools), and
+        any accompanying documentation contained in this repository.
+
+   1.2. "Derivative Work" means any work based upon Shrimpl or the Software
+        (such as a modification, enhancement, translation, or other change)
+        in source or object form.
+
+   1.3. "Product" means any application, game, service, device, or other
+        work that uses Shrimpl or the Software internally or as a
+        component, but which has its own distinct functionality and value
+        beyond being Shrimpl itself.
+
+2. Grant of Rights
+
+   Subject to the terms and conditions of this License, you are hereby
+   granted a worldwide, royalty-free, non-exclusive, perpetual (for the
+   duration of copyright) license to:
+
+   2.1. Use, copy, modify, and merge the Software and any Derivative Works.
+
+   2.2. Publish and distribute the Software and any Derivative Works, in
+        source or object form.
+
+   2.3. Use the Software and any Derivative Works to develop, build, run,
+        test, and operate Products.
+
+3. Non-Commercial Restriction on Shrimpl Itself
+
+   3.1. You may not sell Shrimpl itself as a standalone product. This means
+        you may not charge a fee (including license fees, subscription
+        fees, or similar) solely for:
+
+        (a) granting access to Shrimpl, the Software, or a Derivative Work
+            whose primary purpose is to provide Shrimpl as a language
+            implementation; or
+
+        (b) distributing copies of Shrimpl, the Software, or such
+            Derivative Works where Shrimpl is the main thing being sold.
+
+   3.2. You may, however, use Shrimpl and the Software in or with Products
+        and you may sell, license, or otherwise commercially exploit such
+        Products, provided that:
+
+        (a) the primary value of the Product is not merely providing access
+            to Shrimpl itself; and
+
+        (b) your customers are not being charged solely for receiving
+            Shrimpl or the Software.
+
+   3.3. Example (allowed): A commercial SaaS platform, game, or tool that
+        internally uses Shrimpl for scripting or configuration, and which
+        sells access to the platform, game, or tool.
+
+        Example (not allowed): Selling a copy of Shrimpl or a repackaged
+        Shrimpl distribution as a paid “Shrimpl Pro” download whose primary
+        purpose is simply to be a Shrimpl implementation.
+
+4. Contributions
+
+   4.1. By submitting any contribution (including code, documentation,
+        examples, or other material) to this project, you agree that:
+
+        (a) you have the necessary rights to submit the contribution; and
+
+        (b) you irrevocably license your contribution under the terms of
+            this Shrimpl Language License (SLL-1.0), so that it can be
+            used, modified, and distributed together with the rest of
+            Shrimpl.
+
+   4.2. The maintainers may reformat, refactor, or otherwise modify
+        contributions as needed for technical, stylistic, or organizational
+        reasons, while keeping them under this same License.
+
+5. Attribution and Notice
+
+   5.1. The above copyright notice and this License shall be included in
+        all copies or substantial portions of the Software and any
+        Derivative Works that are publicly distributed.
+
+   5.2. If you distribute a Product that exposes Shrimpl to end users (for
+        example, by allowing users to write Shrimpl code inside the
+        Product), you must include a notice in your documentation or “About”
+        section substantially as follows:
+
+        “This product uses the Shrimpl programming language.
+         Shrimpl © 2025 Aisen D. Lopez-Ramos.”
+
+6. Trademarks
+
+   6.1. This License does not grant permission to use the names “Shrimpl”,
+        “Shrimpl Language”, the Shrimpl logo, or any related project names
+        or marks as trademarks or service marks.
+
+   6.2. You may refer to Shrimpl factually (e.g., “built with Shrimpl”) but
+        must not imply sponsorship, endorsement, or official status by
+        Aisen D. Lopez-Ramos or the Shrimpl project unless you have a
+        separate written agreement granting such rights.
+
+7. Disclaimer of Warranty
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+   IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+   CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+   TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+   SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE OR IN PRODUCTS
+   THAT USE THE SOFTWARE.
+
+8. Limitation of Liability
+
+   TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL
+   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY INDIRECT, INCIDENTAL,
+   SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
+   TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+   PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+   LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+   NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
