@@ -10,7 +10,7 @@
     />
   </a>
 
-  <a href="https://discord.gg/svnFRwfz" target="_blank" style="padding-left: 12px;">
+  <a href="https://discord.gg/V2qWcNHqvY" target="_blank" style="padding-left: 12px;">
     <img 
       src="https://img.shields.io/badge/Join%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" 
       alt="Discord"
