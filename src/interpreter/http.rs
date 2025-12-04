@@ -89,7 +89,10 @@ fn verify_jwt(token: &str) -> Result<JwtClaims, String> {
 
 /// Return Ok(claims) if valid token or auth not required, Err(HttpResponse) on failure.
 /// If auth is not required for this path, Ok(None).
-fn verify_jwt_if_required(path: &str, req: &HttpRequest) -> Result<Option<JwtClaims>, HttpResponse> {
+fn verify_jwt_if_required(
+    path: &str,
+    req: &HttpRequest,
+) -> Result<Option<JwtClaims>, HttpResponse> {
     if !path_requires_auth(path) {
         return Ok(None);
     }
@@ -98,21 +101,17 @@ fn verify_jwt_if_required(path: &str, req: &HttpRequest) -> Result<Option<JwtCla
         Some(t) => t,
         None => {
             let body = r#"{"error":"missing bearer token"}"#;
-            return Err(
-                HttpResponse::Unauthorized()
-                    .content_type("application/json; charset=utf-8")
-                    .body(body),
-            );
+            return Err(HttpResponse::Unauthorized()
+                .content_type("application/json; charset=utf-8")
+                .body(body));
         }
     };
 
     match verify_jwt(&token) {
         Ok(claims) => Ok(Some(claims)),
-        Err(msg) => Err(
-            HttpResponse::Unauthorized()
-                .content_type("application/json; charset=utf-8")
-                .body(format!(r#"{{"error":"unauthorized","detail":"{}"}}"#, msg)),
-        ),
+        Err(msg) => Err(HttpResponse::Unauthorized()
+            .content_type("application/json; charset=utf-8")
+            .body(format!(r#"{{"error":"unauthorized","detail":"{}"}}"#, msg))),
     }
 }
 
@@ -135,11 +134,9 @@ async fn validate_and_sanitize_body(
     let mut json_val: Value = match serde_json::from_str(&body_text) {
         Ok(v) => v,
         Err(e) => {
-            return Err(
-                HttpResponse::BadRequest()
-                    .content_type("application/json; charset=utf-8")
-                    .body(format!(r#"{{"error":"invalid_json","detail":"{}"}}"#, e)),
-            );
+            return Err(HttpResponse::BadRequest()
+                .content_type("application/json; charset=utf-8")
+                .body(format!(r#"{{"error":"invalid_json","detail":"{}"}}"#, e)));
         }
     };
 
@@ -150,14 +147,12 @@ async fn validate_and_sanitize_body(
         Ok(c) => c,
         Err(e) => {
             // Misconfigured schema -> 500, not user's fault.
-            return Err(
-                HttpResponse::InternalServerError()
-                    .content_type("application/json; charset=utf-8")
-                    .body(format!(
-                        r#"{{"error":"schema_compile_error","detail":"{}"}}"#,
-                        e
-                    )),
-            );
+            return Err(HttpResponse::InternalServerError()
+                .content_type("application/json; charset=utf-8")
+                .body(format!(
+                    r#"{{"error":"schema_compile_error","detail":"{}"}}"#,
+                    e
+                )));
         }
     };
 
@@ -167,14 +162,12 @@ async fn validate_and_sanitize_body(
             Some(e) => format!("{} at {}", e, e.instance_path),
             None => "validation failed".to_string(),
         };
-        return Err(
-            HttpResponse::BadRequest()
-                .content_type("application/json; charset=utf-8")
-                .body(format!(
-                    r#"{{"error":"validation_failed","detail":"{}"}}"#,
-                    msg
-                )),
-        );
+        return Err(HttpResponse::BadRequest()
+            .content_type("application/json; charset=utf-8")
+            .body(format!(
+                r#"{{"error":"validation_failed","detail":"{}"}}"#,
+                msg
+            )));
     }
 
     sanitize_json(&mut json_val);
@@ -359,8 +352,7 @@ pub async fn run(program: Program) -> std::io::Result<()> {
                                 };
 
                                 // Validate + sanitize JSON body (if schema exists)
-                                let body_text_res =
-                                    validate_and_sanitize_body(&path, body).await;
+                                let body_text_res = validate_and_sanitize_body(&path, body).await;
                                 let body_text = match body_text_res {
                                     Ok(t) => t,
                                     Err(resp) => {

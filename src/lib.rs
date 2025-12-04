@@ -7,6 +7,6 @@ pub mod ast;
 pub mod config;
 pub mod docs;
 pub mod interpreter;
-pub mod parser;
 pub mod loader;
+pub mod parser;
 pub mod typecheck;

@@ -988,9 +988,7 @@ fn value_to_json(v: &ValueRuntime) -> Value {
     match v {
         ValueRuntime::Number(n) => json!(n),
         ValueRuntime::Bool(b) => json!(*b),
-        ValueRuntime::Str(s) => {
-            serde_json::from_str::<Value>(s).unwrap_or_else(|_| json!(s))
-        }
+        ValueRuntime::Str(s) => serde_json::from_str::<Value>(s).unwrap_or_else(|_| json!(s)),
     }
 }
 

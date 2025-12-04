@@ -285,6 +285,5 @@ pub fn jwt_secret_from_env() -> Option<String> {
 ///
 /// The key is expected to be the Shrimpl path string, e.g. "/login" or "/users/:id".
 pub fn validation_schema_for_path(path: &str) -> Option<Value> {
-    validation_section()
-        .and_then(|v| v.schemas.get(path).cloned())
+    validation_section().and_then(|v| v.schemas.get(path).cloned())
 }

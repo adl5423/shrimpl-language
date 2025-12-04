@@ -182,8 +182,7 @@ fn infer_expr_type(
                         args.iter().zip(f_annot.params.iter()).enumerate()
                     {
                         let expected = parse_type_name(param_ty_name);
-                        let actual =
-                            infer_expr_type(arg_expr, env, program, types_cfg, diags);
+                        let actual = infer_expr_type(arg_expr, env, program, types_cfg, diags);
                         if !is_assignable(actual, expected) {
                             diags.push(json!({
                                 "kind": "error",
@@ -226,13 +225,7 @@ fn infer_expr_type(
                 branch_tys.push(infer_expr_type(body, env, program, types_cfg, diags));
             }
             if let Some(else_expr) = else_branch {
-                branch_tys.push(infer_expr_type(
-                    else_expr,
-                    env,
-                    program,
-                    types_cfg,
-                    diags,
-                ));
+                branch_tys.push(infer_expr_type(else_expr, env, program, types_cfg, diags));
             }
             // Simple join: if all same non-any type, keep it; else Any.
             if let Some(first) = branch_tys.first() {
@@ -246,9 +239,7 @@ fn infer_expr_type(
             }
         }
 
-        Expr::Repeat { body, .. } => {
-            infer_expr_type(body, env, program, types_cfg, diags)
-        }
+        Expr::Repeat { body, .. } => infer_expr_type(body, env, program, types_cfg, diags),
 
         Expr::Try {
             try_body,
