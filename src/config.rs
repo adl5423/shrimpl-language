@@ -93,14 +93,17 @@ pub struct ValidationConfigFile {
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct FunctionTypeFile {
     /// Parameter types by position: "number", "string", "bool", "any".
+    #[allow(dead_code)]
     pub params: Vec<String>,
     /// Optional result type.
+    #[allow(dead_code)]
     pub result: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct TypesConfigFile {
     /// Function name -> type info.
+    #[allow(dead_code)]
     pub functions: HashMap<String, FunctionTypeFile>,
 }
 
@@ -110,6 +113,8 @@ pub struct FileConfig {
     pub secrets: Option<SecretsConfigFile>,
     pub auth: Option<AuthConfigFile>,
     pub validation: Option<ValidationConfigFile>,
+    /// Optional static typing configuration for Shrimpl programs.
+    #[allow(dead_code)]
     pub types: Option<TypesConfigFile>,
     /// Arbitrary key/value config for config_get/config_set.
     pub values: Option<HashMap<String, Value>>,
@@ -196,6 +201,7 @@ pub fn auth_section() -> Option<AuthConfigFile> {
 }
 
 /// Types config section, if present.
+#[allow(dead_code)]
 pub fn types_section() -> Option<TypesConfigFile> {
     runtime()
         .lock()

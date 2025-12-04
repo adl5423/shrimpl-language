@@ -33,6 +33,12 @@ fn compute_hash(contents: &str) -> String {
     hex::encode(bytes)
 }
 
+/// Load an existing lockfile from disk, if present.
+///
+/// This is primarily intended for future tooling / diagnostics and is not yet
+/// wired into the main CLI flow, so we allow it to be "dead code" from Clippy's
+/// perspective while still keeping it available as a public API.
+#[allow(dead_code)]
 pub fn load_lockfile() -> Option<ShrimplLock> {
     if !Path::new(LOCKFILE_NAME).exists() {
         return None;

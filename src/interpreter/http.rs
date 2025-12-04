@@ -39,6 +39,7 @@ struct JwtClaims {
     pub sub: Option<String>,
     pub scope: Option<String>,
     pub role: Option<String>,
+    #[allow(dead_code)]
     pub exp: Option<u64>,
 }
 
@@ -171,7 +172,7 @@ async fn validate_and_sanitize_body(
     }
 
     sanitize_json(&mut json_val);
-    let sanitized = serde_json::to_string(&json_val).unwrap_or_else(|_| body_text);
+    let sanitized = serde_json::to_string(&json_val).unwrap_or(body_text);
     Ok(sanitized)
 }
 
@@ -214,7 +215,7 @@ fn log_request(
         "elapsed_ms": elapsed_ms,
         "auth_ok": auth_ok
     });
-    println!("{}", payload.to_string());
+    println!("{}", payload);
 }
 
 pub async fn run(program: Program) -> std::io::Result<()> {
@@ -282,16 +283,7 @@ pub async fn run(program: Program) -> std::io::Result<()> {
                                 // Collect vars from path + query
                                 let mut vars = collect_all_vars(&req);
 
-                                // Always inject default JWT-related vars so app.shr
-                                // can safely reference jwt_sub/jwt_scope/jwt_role
-                                vars.entry("jwt_sub".to_string())
-                                    .or_insert_with(|| "".to_string());
-                                vars.entry("jwt_scope".to_string())
-                                    .or_insert_with(|| "".to_string());
-                                vars.entry("jwt_role".to_string())
-                                    .or_insert_with(|| "".to_string());
-
-                                // Override with claims when present
+                                // Inject claims when present
                                 if let Some(claims) = claims_opt.as_ref() {
                                     if let Some(sub) = &claims.sub {
                                         vars.insert("jwt_sub".to_string(), sub.clone());
@@ -374,15 +366,7 @@ pub async fn run(program: Program) -> std::io::Result<()> {
                                 // Insert request body under "body" for Shrimpl code
                                 vars.insert("body".to_string(), body_text);
 
-                                // Always inject default JWT-related vars
-                                vars.entry("jwt_sub".to_string())
-                                    .or_insert_with(|| "".to_string());
-                                vars.entry("jwt_scope".to_string())
-                                    .or_insert_with(|| "".to_string());
-                                vars.entry("jwt_role".to_string())
-                                    .or_insert_with(|| "".to_string());
-
-                                // Override with claims when present
+                                // Inject claims when present
                                 if let Some(claims) = claims_opt.as_ref() {
                                     if let Some(sub) = &claims.sub {
                                         vars.insert("jwt_sub".to_string(), sub.clone());

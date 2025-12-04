@@ -18,7 +18,7 @@
 // - produces diagnostics in the same JSON shape used by docs::build_diagnostics
 
 use crate::config;
-use crate::parser::ast::{BinOp, Expr, FunctionDef, Program};
+use crate::parser::ast::{BinOp, Expr, Program};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
@@ -126,6 +126,7 @@ fn display_ty(t: Ty) -> &'static str {
     }
 }
 
+#[allow(clippy::only_used_in_recursion)]
 fn infer_expr_type(
     expr: &Expr,
     env: &HashMap<String, Ty>,
