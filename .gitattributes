@@ -1,0 +1,15 @@
+# -----------------------------
+# GitHub Linguist configuration
+# -----------------------------
+# Tell GitHub that all `.shr` files are written in the "Shrimpl" language.
+# This affects language stats and, if Linguist knows about Shrimpl, highlighting.
+# If Shrimpl is not yet defined in Linguist's languages.yml, GitHub will still
+# group these files under the custom language name "Shrimpl" in the repo stats.
+
+*.shr linguist-language=Shrimpl
+
+# Optional: if you have Shrimpl examples or teaching materials in a specific
+# folder and want to be explicit, you can also add patterns like:
+#
+# examples/**/*.shr linguist-language=Shrimpl
+# tutorials/**/*.shr linguist-language=Shrimpl
