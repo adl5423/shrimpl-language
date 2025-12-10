@@ -283,8 +283,9 @@ fn parse_rate_limit_line(line: &str, line_no: usize) -> Result<RateLimit, String
             )
         })?;
         let inner = &rest[1..close];
+        // Clippy fix: use an array pattern instead of manual char comparison
         let parts: Vec<&str> = inner
-            .split(|c| c == ',' || c == ' ')
+            .split([',', ' '])
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
             .collect();

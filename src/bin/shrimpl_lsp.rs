@@ -533,8 +533,9 @@ fn compute_rename_edits(
                 None
             };
 
-            if before_ch.map_or(true, |c| !is_word_char(c))
-                && after_ch.map_or(true, |c| !is_word_char(c))
+            // Clippy fix: use is_none_or instead of map_or(true, ...)
+            if before_ch.is_none_or(|c| !is_word_char(c))
+                && after_ch.is_none_or(|c| !is_word_char(c))
             {
                 let range = Range {
                     start: Position {

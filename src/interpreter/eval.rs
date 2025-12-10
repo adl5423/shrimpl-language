@@ -72,7 +72,7 @@
 // Kids only see numbers, strings, booleans, and function calls.
 
 use crate::config;
-use crate::orm; // <--- NEW: hook into src/orm.rs
+use crate::orm; // <--- hook into src/orm.rs
 
 use crate::parser::ast::{BinOp, Expr, FunctionDef, Program};
 
@@ -1034,7 +1034,7 @@ fn eval_builtin(
             Ok(ValueRuntime::Str(txt))
         }
 
-        // --- ORM helpers (NEW) ---
+        // --- ORM helpers ---
         "orm_insert" => {
             if vals.len() != 2 {
                 return Err("orm_insert(model_name, record_json) expects 2 arguments".to_string());
@@ -1060,10 +1060,8 @@ fn eval_builtin(
             let result = orm::orm_find_by_id(&model_name, &id_json)
                 .map_err(|e| format!("orm_find_by_id: {}", e))?;
 
-            let out = match result {
-                Some(json) => json,
-                None => String::new(),
-            };
+            // Clippy fix: use unwrap_or_default instead of manual match
+            let out: String = result.unwrap_or_default();
 
             Ok(ValueRuntime::Str(out))
         }

@@ -152,7 +152,9 @@ pub struct ClassDef {
 /// @rate_limit(max_requests, window_secs) or @rate_limit max window_secs.
 #[derive(Debug, Clone)]
 pub struct RateLimit {
+    #[allow(dead_code)]
     pub max_requests: u32,
+    #[allow(dead_code)]
     pub window_secs: u32,
 }
 
@@ -215,7 +217,9 @@ pub struct ModelDef {
 ///     assert <expr>
 #[derive(Debug, Clone)]
 pub struct TestCase {
+    #[allow(dead_code)]
     pub name: String,
+    #[allow(dead_code)]
     pub assertions: Vec<Expr>,
 }
 
@@ -227,6 +231,7 @@ pub struct Program {
     pub classes: HashMap<String, ClassDef>,
     pub secrets: Vec<SecretDecl>,
     /// All tests defined via `test "name": ...`.
+    #[allow(dead_code)]
     pub tests: Vec<TestCase>,
     /// All `model` declarations keyed by model name.
     pub models: HashMap<String, ModelDef>,
