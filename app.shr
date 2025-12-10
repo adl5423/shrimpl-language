@@ -1,11 +1,14 @@
 # app.shr
 #
-# Shrimpl 0.5.4 demo:
+# Shrimpl 0.5.5 demo:
 # - Data, ML, config, HTTP, and OpenAI helpers
 # - Config-driven server (port/tls) via config/config.<env>.json
 # - Built-in JWT auth (via config.auth.*)
 # - Input validation + sanitization (via config.validation.schemas)
 # - Structured JSON logging for each HTTP request
+# - Basic ORM layer via `model` declarations + SQLite (shrimpl.db)
+# - Rate limiting via @rate_limit(max, window_secs)
+# - Built-in tests (`test "name": ... assert ...`)
 #
 # Open /__shrimpl/ui for the visual API UI.
 #
@@ -17,14 +20,38 @@
 
 server 3000
 
-# --- Functions ---
+# --- Models (ORM demo) -------------------------------------------------
+#
+# These `model` declarations are consumed by the Rust ORM layer at
+# startup (init_global_orm) to auto-create tables in `shrimpl.db`.
+#
+# Example resulting schema (SQLite):
+#   CREATE TABLE IF NOT EXISTS users (...);
+#   CREATE TABLE IF NOT EXISTS tasks (...);
+#
+# You can exercise them via the /orm/* endpoints further below.
+
+model User:
+  id: int pk
+  email: string
+  name: string
+  age?: int
+
+model Task:
+  id: int pk
+  title: string
+  status: string
+  # Optional JSON payload as text
+  payload?: string
+
+# --- Functions ---------------------------------------------------------
 
 func greet(name): "Hello " + name
 
 # Numeric summary from three values (must be single-line expression)
 func stats_summary(a, b, c): "sum=" + sum(number(a), number(b), number(c)) + ", avg=" + avg(number(a), number(b), number(c)) + ", min=" + min(number(a), number(b), number(c)) + ", max=" + max(number(a), number(b), number(c))
 
-# --- OpenAI wrapper helpers ---
+# --- OpenAI wrapper helpers -------------------------------------------
 
 func set_openai_api_key(key): openai_set_api_key(key)
 func set_openai_system(prompt): openai_set_system_prompt(prompt)
@@ -32,7 +59,7 @@ func chat_with_openai(prompt): openai_chat(prompt)
 func chat_with_openai_json(prompt): openai_chat_json(prompt)
 func call_openai_mcp(server_id, tool_name, args_json): openai_mcp_call(server_id, tool_name, args_json)
 
-# --- New generic config + env helpers ---
+# --- New generic config + env helpers ---------------------------------
 
 # Store a config key/value in the in-memory app config.
 # Example:
@@ -59,7 +86,7 @@ func config_has_key(key): config_has(key)
 #   /env?name=PATH
 func read_env(name): env(name)
 
-# --- HTTP client helpers ---
+# --- HTTP client helpers ----------------------------------------------
 
 # Simple pass-through demo that fetches raw text from a URL.
 # Example:
@@ -71,7 +98,7 @@ func http_proxy_get(url): http_get(url)
 #   /http/get-json?url=https://api.github.com
 func http_proxy_get_json(url): http_get_json(url)
 
-# --- New control-flow / boolean / repeat helpers ---
+# --- New control-flow / boolean / repeat helpers ----------------------
 
 # 1) Age classification using if / elif / else and numeric comparisons.
 #    Example:
@@ -105,12 +132,23 @@ func flag_to_bool(flag): if flag == "yes": true else: false
 #      /repeat-greet?name=Ana&n=3 -> "Hello Ana! Hello Ana! Hello Ana!"
 func repeat_greet(name, n): repeat number(n) times: "Hello " + name + "! "
 
-# --- Classes ---
+# --- ORM helper functions ----------------------------------------------
+#
+# These wrap the built-in orm_insert / orm_find_by_id, so endpoints
+# can stay concise and we centralize the model names.
+
+func orm_insert_user(body): orm_insert("User", body)
+func orm_get_user(id): orm_find_by_id("User", id)
+
+func orm_insert_task(body): orm_insert("Task", body)
+func orm_get_task(id): orm_find_by_id("Task", id)
+
+# --- Classes -----------------------------------------------------------
 
 class Math:
   double(x): x * 2
 
-# --- Basic endpoints ---
+# --- Basic endpoints ---------------------------------------------------
 
 endpoint GET "/": "Welcome to Shrimpl! Visit /__shrimpl/ui for the API UI."
 
@@ -127,13 +165,13 @@ endpoint GET "/double/:n": Math.double(n)
 #   /welcome             -> "Hi there! No name provided."
 endpoint GET "/welcome": if name == "": "Hi there! No name provided." else: "Hi " + upper(name) + "! Name length: " + len(name)
 
-# Updated to reflect Shrimpl 0.5.4
-endpoint GET "/info": json { "lang": "Shrimpl", "version": "0.5.4", "ui": "/__shrimpl/ui" }
+# Updated to reflect Shrimpl 0.5.5
+endpoint GET "/info": json { "lang": "Shrimpl", "version": "0.5.5", "ui": "/__shrimpl/ui" }
 
 # Numeric analysis from query (?a=10&b=5&c=15)
 endpoint GET "/stats": stats_summary(a, b, c)
 
-# --- Vector / tensor demos ---
+# --- Vector / tensor demos --------------------------------------------
 
 # Returns a JSON vector, e.g. [1,2,3,4,5]
 endpoint GET "/vec": vec(1, 2, 3, 4, 5)
@@ -145,7 +183,7 @@ endpoint GET "/dot": tensor_dot(vec(number(ax), number(ay)), vec(number(bx), num
 #   /tensor-add?ax=1&ay=2&bx=3&by=4  -> "[4,6]"
 endpoint GET "/tensor-add": tensor_add(vec(number(ax), number(ay)), vec(number(bx), number(by)))
 
-# --- DataFrame (pandas-ish) ---
+# --- DataFrame (pandas-ish) -------------------------------------------
 
 # Load a CSV from a URL into a DF JSON
 # Example: /load-data?url=https://people.sc.fsu.edu/~jburkardt/data/csv/hw_200.csv
@@ -158,7 +196,7 @@ endpoint GET "/head": df_head(df, 5)
 # Select columns from a DF: /select?df=...&columns=col1,col2
 endpoint GET "/select": df_select(df, columns)
 
-# --- Simple ML: linear regression ---
+# --- Simple ML: linear regression -------------------------------------
 
 # Train a tiny model from xs and ys (JSON arrays)
 # Example: /train-linreg?xs=[1,2,3,4]&ys=[2,4,6,8]
@@ -168,7 +206,7 @@ endpoint GET "/train-linreg": linreg_fit(xs, ys)
 # Example: /predict-linreg?model={...}&x=10
 endpoint GET "/predict-linreg": linreg_predict(model, number(x))
 
-# --- OpenAI / AI tooling demos ---
+# --- OpenAI / AI tooling demos ----------------------------------------
 
 # 0) Testing helper: set the OpenAI API key from a query parameter.
 #    /ai/set-key?key=sk-...
@@ -198,7 +236,7 @@ endpoint GET "/ai/test-simple": chat_with_openai("Say exactly: Shrimpl OpenAI br
 #    The concrete values depend on how your OpenAI MCP setup is defined.
 endpoint GET "/ai/mcp-call": call_openai_mcp(server_id, tool_name, args_json)
 
-# --- New endpoints to exercise control flow directly ---
+# --- New endpoints to exercise control flow directly ------------------
 
 # /age-category?age=...
 endpoint GET "/age-category": classify_age(age)
@@ -212,7 +250,7 @@ endpoint GET "/flag": flag_to_bool(flag)
 # /repeat-greet?name=...&n=...
 endpoint GET "/repeat-greet": repeat_greet(name, n)
 
-# --- Config + env test endpoints ---
+# --- Config + env test endpoints --------------------------------------
 
 # Store: /config/set?key=mode&value=demo
 endpoint GET "/config/set": config_set_value(key, value)
@@ -229,7 +267,7 @@ endpoint GET "/config/has": config_has_key(key)
 # Env: /env?name=PATH
 endpoint GET "/env": read_env(name)
 
-# --- HTTP client test endpoints ---
+# --- HTTP client test endpoints ---------------------------------------
 
 # Raw text fetch:
 #   /http/get?url=https://example.com
@@ -239,7 +277,7 @@ endpoint GET "/http/get": http_proxy_get(url)
 #   /http/get-json?url=https://api.github.com
 endpoint GET "/http/get-json": http_proxy_get_json(url)
 
-# --- Auth + JWT + validation demo endpoints ---
+# --- Auth + JWT + validation demo endpoints ---------------------------
 #
 # These endpoints rely on:
 # - config.auth.* for which paths require JWT.
@@ -294,7 +332,7 @@ endpoint GET "/secure/admin": if jwt_role == "admin": "admin access granted" els
 #     { "customer_id": " 123 ", "total": 10.5,
 #       "items": [{ "sku": " ABC ", "qty": 2 }] }
 #
-#   If valid by schema, you get back the same JSON but with strings trimmed.
+#   If valid, you get back the same JSON but with strings trimmed.
 #   If invalid, http.rs returns 400 before this code runs.
 endpoint POST "/orders/create": body
 
@@ -302,3 +340,100 @@ endpoint POST "/orders/create": body
 # - No schema configured -> http.rs just passes the raw body.
 # - Useful to compare behavior with /orders/create.
 endpoint POST "/orders/raw": body
+
+# --- Rate limiting demo endpoints (@rate_limit) ------------------------
+#
+# These endpoints exercise the @rate_limit attribute parsing and
+# middleware behavior.
+
+# Example 1 (with parentheses):
+#   @rate_limit(5, 60)  -> at most 5 requests per 60 seconds per client.
+#
+# Try:
+#   curl 'http://localhost:3000/limited/ping'
+#   ...repeat more than 5 times within a minute from the same client.
+#   The server should start returning HTTP 429 once the limit is hit.
+@rate_limit(5, 60)
+endpoint GET "/limited/ping": "limited-ok: up to 5 requests per minute from a single client"
+
+# Example 2 (space-separated, no parentheses):
+#   @rate_limit 3 10  -> at most 3 requests per 10 seconds.
+#
+# Uses the existing stats_summary() function so you can also verify
+# normal endpoint behavior while the rate limiter is active.
+#
+# Example:
+#   curl 'http://localhost:3000/limited/stats?a=1&b=2&c=3'
+@rate_limit 3 10
+endpoint GET "/limited/stats": stats_summary(a, b, c)
+
+# --- ORM demo endpoints ------------------------------------------------
+#
+# These exercise:
+# - `model` parsing and Program.models population
+# - SQLite migrations in init_global_orm()
+# - Runtime helpers wired to orm_insert / orm_find_by_id
+
+# Create a new user.
+#
+# Example:
+#   curl -X POST 'http://localhost:3000/orm/users' \
+#     -H 'Content-Type: application/json' \
+#     -d '{ "id": 1, "email": "aisen@example.com", "name": "Aisen", "age": 30 }'
+#
+# Returns the rowid / primary key as a string on success.
+endpoint POST "/orm/users": orm_insert_user(body)
+
+# Fetch a user by primary key (integer id).
+#
+# Example:
+#   curl 'http://localhost:3000/orm/users/1'
+#
+# - Path param `id` is a string like "1", which is valid JSON for a
+#   numeric scalar, so orm_find_by_id parses it directly.
+# - Returns:
+#     { "id": 1, "email": "...", "name": "...", "age": 30 }
+#   or an empty string / 404 depending on interpreter behavior for None.
+endpoint GET "/orm/users/:id": orm_get_user(id)
+
+# Create a new task with arbitrary payload.
+#
+# Example:
+#   curl -X POST 'http://localhost:3000/orm/tasks' \
+#     -H 'Content-Type: application/json' \
+#     -d '{ "id": 42, "title": "Demo task", "status": "pending", "payload": "{\"foo\":123}" }'
+endpoint POST "/orm/tasks": orm_insert_task(body)
+
+# Fetch a task by primary key.
+endpoint GET "/orm/tasks/:id": orm_get_task(id)
+
+# --- Built-in tests ----------------------------------------------------
+#
+# These exercise the expression engine, control flow, and a few
+# representative helper functions. How they are run depends on the
+# CLI integration; they are also visible to the LSP / docs pipeline.
+
+# Sanity-check that greet() works and that the expression engine can
+# compare strings correctly.
+test "greet-basic":
+  assert greet("Shrimpl") == "Hello Shrimpl"
+
+# Validate the if / elif / else control-flow in classify_age().
+test "age-classification":
+  assert classify_age("10") == "child"
+  assert classify_age("15") == "teen"
+  assert classify_age("30") == "adult"
+
+# Validate boolean logic + and/or in describe_adult_us().
+test "adult-us-logic":
+  assert describe_adult_us("20", "US") == "adult-us"
+  assert describe_adult_us("20", "ca") == "adult-non-us"
+  assert describe_adult_us("16", "US") == "not-adult"
+
+# Validate repeat N times loop behavior.
+test "repeat-greet-output":
+  assert repeat_greet("Ana", 2) == "Hello Ana! Hello Ana! "
+
+# Quick numeric sanity check for stats_summary().
+test "stats-summary-basic":
+  assert stats_summary(1, 2, 3) == "sum=6, avg=2, min=1, max=3"

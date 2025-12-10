@@ -4,21 +4,21 @@
 
 <p align="center">
   <a href="https://shrimpl.dev" target="_blank" style="padding-right: 12px;">
-    <img 
-      src="https://img.shields.io/badge/Visit%20Website-005BBB?style=for-the-badge&logo=google-chrome&logoColor=white" 
+    <img
+      src="https://img.shields.io/badge/Visit%20Website-005BBB?style=for-the-badge&logo=google-chrome&logoColor=white"
       alt="Shrimpl Website"
     />
   </a>
 
   <a href="https://discord.gg/V2qWcNHqvY" target="_blank" style="padding-left: 12px;">
-    <img 
-      src="https://img.shields.io/badge/Join%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" 
+    <img
+      src="https://img.shields.io/badge/Join%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white"
       alt="Discord"
     />
   </a>
 </p>
 
---------------------------------------
+---
 
 ## Introduction
 
@@ -26,9 +26,9 @@ Shrimpl is a beginner‑friendly programming language designed to bridge the gap
 
 * **Readable**: English‑like keywords, minimal punctuation, and indentation instead of braces.
 * **Approachable**: Designed so kids and new programmers can learn concepts gradually.
-* **Practical**: Powerful enough to build web APIs, perform data analysis, run simple machine‑learning workflows, and experiment with AI helpers powered by OpenAI.
+* **Practical**: Powerful enough to build web APIs, persist data with a built‑in ORM, perform data analysis, run simple machine‑learning workflows, and experiment with AI helpers powered by OpenAI.
 
-Shrimpl programs are interpreted by a Rust‑based runtime that can run on most platforms. A companion Language Server (LSP) and browser‑based API Studio make it easy to experiment, debug, and explore programs interactively.
+Shrimpl programs are interpreted by a Rust‑based runtime that can run on most platforms. A companion Language Server (LSP), VS Code extension, and browser‑based API Studio make it easy to experiment, debug, and explore programs interactively.
 
 Shrimpl 0.5.x adds several important features:
 
@@ -39,8 +39,10 @@ Shrimpl 0.5.x adds several important features:
 * Per‑endpoint **JSON Schema validation** and automatic input sanitization.
 * An optional **static type checker** driven by config‑based annotations.
 * A small **lockfile** (`shrimpl.lock`) capturing version and hash information.
+* A **SQLite‑backed ORM** that turns `model` declarations into real tables in `shrimpl.db`, plus Shrimpl built‑ins for inserts and lookups.
+* A more robust **editor experience**: a bundled `shrimpl-lsp` in the official VS Code extension, with auto‑selected binaries per platform and a simple `shrimpl.lsp.path` override.
 
-The goal is to keep Shrimpl simple enough for kids and beginners, while gradually introducing real‑world concepts like APIs, authentication, validation, and types.
+The goal is to keep Shrimpl simple enough for kids and beginners, while gradually introducing real‑world concepts like APIs, authentication, validation, persistence, and types.
 
 ---
 
@@ -58,6 +60,7 @@ The goal is to keep Shrimpl simple enough for kids and beginners, while graduall
 * Provide **first‑class constructs** for building HTTP servers and endpoints.
 * Avoid heavy frameworks or complex configuration.
 * Make the default experience “type code, run, see results.”
+* Keep persistence and storage simple: declare `model` blocks and let Shrimpl handle the SQLite database and migrations.
 
 ### Expressiveness
 
@@ -70,6 +73,7 @@ Shrimpl supports:
 * HTTP client utilities for calling external APIs
 * Optional AI helpers for calling OpenAI models (chat‑style responses and JSON payloads)
 * Optional static type annotations configured in JSON
+* Model declarations that are wired to a SQLite‑backed ORM for basic CRUD‑like operations from Shrimpl code
 
 ### Safety
 
@@ -81,6 +85,7 @@ Shrimpl supports:
   * duplicate endpoints with the same method and path
 * JSON Schema validation rejects malformed requests before Shrimpl code runs.
 * A simple type checker can detect type mismatches between annotated functions and their bodies.
+* The ORM is initialized once at server startup, and failures are treated as runtime errors you can log and inspect rather than silent data corruption.
 
 Diagnostics are visible both in the terminal, in `__shrimpl/diagnostics`, and inside editor integrations via the LSP.
 
@@ -136,7 +141,9 @@ Diagnostics are visible both in the terminal, in `__shrimpl/diagnostics`, and in
 
    * Parse `app.shr`.
    * Perform basic checks.
-   * Start a web server on port `3000`.
+   * Load environment‑specific configuration from `config/config.<env>.json` (if present).
+   * Initialize the ORM and create/upgrade tables for any `model` declarations.
+   * Start a web server on the configured port.
 
 4. Open a browser and navigate to:
 
@@ -150,7 +157,7 @@ Diagnostics are visible both in the terminal, in `__shrimpl/diagnostics`, and in
    Hello, Shrimpl!
    ```
 
-5. To only check syntax and diagnostics (without running the server), use:
+5. To only check syntax and diagnostics (without running the server or touching the database), use:
 
    ```bash
    shrimpl --file app.shr check
@@ -201,6 +208,7 @@ Notes:
 * `import "relative/path/file.shr"` inlines the contents of the other file.
 * Paths are resolved **relative to the file that performs the import**.
 * Each file is loaded only once. Cycles (`a.shr` importing `b.shr` which imports `a.shr`) are ignored after the first visit.
+* `model` declarations can live in any imported file; they are collected into a global `Program.models` list and fed into the ORM at server startup.
 
 ### Config Files (`config/config.<env>.json`)
 
@@ -257,7 +265,7 @@ A typical config file:
 
 What each section controls:
 
-* `server`: Port and TLS flag (can override `server` declaration in Shrimpl code).
+* `server`: Port and TLS flag (can override the `server` declaration in Shrimpl code).
 * `auth`: JWT configuration and which paths require authentication.
 * `validation`: Per‑path JSON Schemas for request body validation.
 * `types`: Type annotations for functions (used by the static type checker).
@@ -290,7 +298,19 @@ server 3000
 * Exactly **one** `server` declaration is allowed per program.
 * The server must appear **before** any `endpoint` declarations.
 
-Configuration from `config/config.<env>.json` can override the port and TLS flag if present.
+Configuration from `config/config.<env>.json` can override the port and TLS flag if present. Under the hood, the CLI entrypoint:
+
+1. Loads and parses the Shrimpl program.
+2. Calls `shrimpl_config::init()` to load the environment‑specific JSON config.
+3. Calls `shrimpl_config::apply_server_to_program(&mut program)` so config values can override the `server` declaration.
+4. Calls `orm::init_global_orm(&program)` to initialize the SQLite‑backed ORM and run migrations for any `model` declarations.
+5. Starts the Actix‑Web HTTP server using the effective `program.server` settings.
+
+From a user’s perspective this happens automatically when you run:
+
+```bash
+shrimpl --file app.shr run
+```
 
 ### Enabling TLS (HTTPS)
 
@@ -365,14 +385,17 @@ endpoint POST "/echo":
 * If validation (JSON Schema) is configured for this path, the body is parsed as JSON, validated, sanitized, and then re‑serialized back into `body`.
 * If no validation schema is configured, `body` is simply the raw text.
 
-A typical JSON endpoint:
+This is especially useful together with the ORM built‑ins:
 
 ```shrimpl
-endpoint POST "/login":
-  # Assuming validation ensures email/password are present
-  # and that body is a well‑formed JSON string.
-  "Received login payload: " + body
+# JSON in body is inserted into the User model
+endpoint POST "/orm/users": orm_insert("User", body)
+
+# Path parameter id is passed directly as JSON scalar (e.g. "1" → 1)
+endpoint GET "/orm/users/:id": orm_find_by_id("User", id)
 ```
+
+Here the HTTP layer provides `body` and `id` as strings, and the ORM built‑ins handle JSON parsing and type conversion. Combined with JSON Schema validation, this creates a simple but realistic request → validation → persistence pipeline.
 
 ### Text vs JSON Endpoints
 
@@ -722,6 +745,170 @@ endpoint GET "/predict":
   linreg_predict(model, number(x))
 ```
 
+### ORM Built‑ins (SQLite Persistence)
+
+Shrimpl 0.5.5 introduces a minimal ORM layer backed by SQLite. It turns `model` declarations in Shrimpl code into real tables in a `shrimpl.db` file and exposes simple built‑ins for inserts and lookups.
+
+At server startup (`shrimpl --file app.shr run`):
+
+1. The parser collects all `model` declarations into `Program.models`.
+2. `orm::init_global_orm(&program)` opens `shrimpl.db` (in the current working directory) or creates it if it does not exist.
+3. The ORM clones `program.models` into its own internal map.
+4. For each model, it generates a `CREATE TABLE IF NOT EXISTS` statement with the proper columns, primary key, and nullability.
+5. It executes these statements to bring the database schema in sync with the Shrimpl models (simple automatic migrations).
+
+From Shrimpl code you do not call `init_global_orm` directly; instead you use the following built‑ins:
+
+| Function                                     | Description                                                                                        |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `orm_insert(model_name, record_json_string)` | Insert a record into the table backing the given `model`. Returns the SQLite `rowid` as a string.  |
+| `orm_find_by_id(model_name, id_json_string)` | Look up a row by primary key. Returns a JSON string of the record, or `null` when no row is found. |
+
+Both functions expect **JSON strings**, not structured objects, because Shrimpl expressions are string‑based. Typical usage combines them with HTTP request variables.
+
+#### Declaring Models
+
+Models are declared in Shrimpl using the `model` keyword:
+
+```shrimpl
+model User:
+  id: int pk
+  email: string
+  name: string
+  age?: int
+
+model Task:
+  id: int pk
+  title: string
+  status: string
+  payload?: string
+```
+
+Key points:
+
+* Each `model` has a name (`User`, `Task`) and a list of fields.
+* A field has:
+
+  * a name (`id`, `email`, `age`),
+  * a type (`int`, `string`, `bool`, `number`, `text`, etc.),
+  * optional markers like `pk` (primary key) and `?` (optional).
+* During ORM setup, each field becomes a SQLite column.
+
+The type mapping from Shrimpl to SQLite is:
+
+* `int`, `integer` → `INTEGER`
+* `number`, `float`, `double`, `real` → `REAL`
+* `bool`, `boolean` → `INTEGER` (0/1)
+* `string`, `text` → `TEXT`
+* any other type name → `TEXT` with a warning
+
+Fields marked as `pk` become `PRIMARY KEY`. Fields that are not optional (`?`) become `NOT NULL`.
+
+#### `orm_insert(model_name, record_json)`
+
+`orm_insert` inserts a new row into the table backing the given model.
+
+Signature:
+
+```shrimpl
+orm_insert(model_name, record_json)
+```
+
+* `model_name`: the Shrimpl model name as a string, for example `"User"`.
+* `record_json`: a JSON string representing a flat object whose keys are field names.
+
+Internally, the ORM:
+
+1. Locates the `ModelDef` for `model_name`.
+2. Parses `record_json` into a JSON object.
+3. Iterates over the model’s fields and collects those present in the object.
+4. Builds an `INSERT INTO table (cols...) VALUES (?, ?, ...)` statement.
+5. Converts JSON values to SQLite values.
+6. Executes the statement.
+7. Returns the last inserted `rowid` as a string.
+
+Example endpoint that creates users from a JSON body:
+
+```shrimpl
+model User:
+  id: int pk
+  email: string
+  name: string
+  age?: int
+
+server 3000
+
+endpoint POST "/users":
+  # Expecting a JSON body like {"id": 1, "email": "...", "name": "..."}
+  orm_insert("User", body)
+```
+
+Example request:
+
+```http
+POST /users
+Content-Type: application/json
+
+{"id": 1, "email": "alice@example.com", "name": "Alice"}
+```
+
+Response body (string):
+
+```text
+1
+```
+
+This is the SQLite `rowid`. You can return it directly or wrap it in your own JSON:
+
+```shrimpl
+endpoint POST "/users":
+  "{\"inserted_id\": " + orm_insert("User", body) + "}"
+```
+
+If the JSON does not contain any fields that match the model’s fields, or if the SQL insert fails, `orm_insert` returns an error string.
+
+#### `orm_find_by_id(model_name, id_json)`
+
+`orm_find_by_id` retrieves a single row by primary key and returns it as a JSON string.
+
+Signature:
+
+```shrimpl
+orm_find_by_id(model_name, id_json)
+```
+
+* `model_name`: the Shrimpl model name as a string.
+* `id_json`: a JSON string representing the primary key value. For simple integer keys, this can be as simple as `"1"`.
+
+Internally, the ORM:
+
+1. Locates the `ModelDef` for `model_name`.
+2. Finds the field marked as `pk`.
+3. Parses `id_json` to a JSON value and then a SQLite value.
+4. Runs `SELECT * FROM table WHERE pk = ? LIMIT 1`.
+5. Converts the row into a JSON object whose keys are field names.
+6. Returns that object as a JSON string.
+
+If no row is found, `orm_find_by_id` returns `null` (the Shrimpl null value).
+
+Example endpoints:
+
+```shrimpl
+# Returns a JSON string representing the user, or null if not found
+endpoint GET "/users/:id":
+  orm_find_by_id("User", id)
+
+# Returns a more decorated message
+endpoint GET "/users/:id/info":
+  user_json = orm_find_by_id("User", id)
+  if user_json == null:
+    "User not found"
+  else:
+    "Found user: " + user_json
+```
+
+This pattern pairs well with validation on write (using JSON Schema) and lightweight checks on read (for example verifying the string is not `null`).
+
 ---
 
 ## AI Helpers (OpenAI Integration)
@@ -938,6 +1125,118 @@ endpoint POST "/login":
 
 If a schema is misconfigured, the server responds with `500` and `{"error":"schema_compile_error","detail":"..."}` to avoid blaming the user.
 
+When combining validation and the ORM, a common pattern is:
+
+```shrimpl
+# config/config.dev.json
+"validation": {
+  "schemas": {
+    "/orm/users": {
+      "type": "object",
+      "required": ["id", "email", "name"],
+      "properties": {
+        "id": {"type": "integer"},
+        "email": {"type": "string", "format": "email"},
+        "name": {"type": "string"},
+        "age": {"type": "integer"}
+      }
+    }
+  }
+}
+```
+
+```shrimpl
+# app.shr
+model User:
+  id: int pk
+  email: string
+  name: string
+  age?: int
+
+endpoint POST "/orm/users":
+  # body is now validated and sanitized JSON
+  orm_insert("User", body)
+```
+
+This keeps database writes safe and predictable without adding complexity to Shrimpl code.
+
+---
+
+## Persistence and SQLite ORM (How It Fits Together)
+
+This section summarizes how the ORM, HTTP server, and Shrimpl code work together in a typical application.
+
+### Startup Flow
+
+When you run:
+
+```bash
+shrimpl --file app.shr run
+```
+
+The runtime:
+
+1. Parses `app.shr` (and any imported `.shr` files) into an internal `Program`.
+2. Reads `SHRIMPL_ENV` and loads `config/config.<env>.json` if present.
+3. Applies config overrides to `program.server` (port, TLS).
+4. Initializes the global ORM with `program.models`:
+
+   * Opens `shrimpl.db`.
+   * Runs `CREATE TABLE IF NOT EXISTS ...` for each `model`.
+5. Starts the HTTP server (`actix-web`).
+6. For each incoming request, wires request data into variables (`body`, `jwt_*`, path and query parameters).
+7. Evaluates the endpoint body as a Shrimpl expression.
+
+If ORM initialization fails (for example invalid database path), Shrimpl logs a message like:
+
+```text
+[shrimpl-orm] failed to initialize ORM: <details>
+```
+
+but the server still starts so you can debug the issue from Shrimpl code or logs.
+
+### Example: `app.shr` Demo with ORM, Auth, Validation, and Rate Limiting
+
+A more complete `app.shr` might look like this (simplified):
+
+```shrimpl
+server 3000
+
+model User:
+  id: int pk
+  email: string
+  name: string
+  age?: int
+
+model Task:
+  id: int pk
+  title: string
+  status: string
+  payload?: string
+
+endpoint POST "/orm/users": orm_insert("User", body)
+endpoint GET "/orm/users/:id": orm_find_by_id("User", id)
+
+endpoint POST "/orm/tasks": orm_insert("Task", body)
+endpoint GET "/orm/tasks/:id": orm_find_by_id("Task", id)
+
+@rate_limit(5, 60)
+endpoint GET "/limited/ping": "pong"
+
+@rate_limit 3 10
+endpoint GET "/limited/stats": "ok"
+```
+
+Configured with validation and auth in `config/config.dev.json`, this single program:
+
+* Serves HTTP on the configured port.
+* Enforces JWT requirements on selected paths.
+* Validates JSON payloads on write.
+* Creates and updates real SQLite tables.
+* Applies simple rate limits to specific endpoints.
+
+All of this is driven by Shrimpl code and JSON configuration, without writing any SQL or HTTP boilerplate.
+
 ---
 
 ## Optional Static Type Checker
@@ -1010,6 +1309,7 @@ Type diagnostics are included in:
 * `shrimpl --file app.shr diagnostics`
 * `GET /__shrimpl/diagnostics` (JSON)
 * API Studio diagnostics panel
+* Editor integrations via the LSP
 
 Because Shrimpl is still dynamically typed at runtime, type annotations are always optional. They provide **extra feedback**, not hard compilation barriers.
 
@@ -1111,6 +1411,7 @@ API Studio is ideal for:
 * Exploring endpoints.
 * Testing AI helpers with different prompts.
 * Showing the relationship between code, requests, and responses.
+* Demonstrating how `model` declarations, ORM calls, and HTTP APIs interact in a single console.
 
 ---
 
@@ -1118,16 +1419,16 @@ API Studio is ideal for:
 
 Shrimpl ships with a Language Server, **`shrimpl-lsp`**, that provides editor features.
 
-### Capabilities
+### Core Capabilities
 
 * **Live diagnostics** (syntax, static checks, type hints).
-* **Hover information** (`server`, `endpoint`, functions, classes).
-* **Completions** (keywords like `server`, `endpoint`, `func`, `class`, `GET`, `POST`).
-* **Document symbols** (outline of endpoints, functions, classes).
+* **Hover information** (`server`, `endpoint`, functions, classes, models).
+* **Completions** (keywords like `server`, `endpoint`, `func`, `class`, `GET`, `POST`, `model`).
+* **Document symbols** (outline of endpoints, functions, classes, models).
 
-### Running the LSP
+### Running the LSP Manually
 
-Build and run:
+You can still build and run the language server directly:
 
 ```bash
 cargo build --bin shrimpl-lsp
@@ -1136,16 +1437,149 @@ cargo run --bin shrimpl-lsp
 
 The server speaks JSON‑RPC 2.0 over stdio, which most editors can connect to.
 
-### Editor Integrations
+### VS Code Extension (Bundled Language Server)
+
+For most users, the simplest way to use the Shrimpl language server is via the official VS Code extension.
+
+The extension:
+
+* Registers `.shr` files with the `shrimpl` language.
+* Starts `shrimpl-lsp` automatically when you open a Shrimpl file.
+* Ships prebuilt `shrimpl-lsp` binaries under `server/`:
+
+  * `server/shrimpl-lsp-darwin-arm64`
+  * `server/shrimpl-lsp-linux-x64`
+  * `server/shrimpl-lsp-win32-x64.exe`
+
+On activation, the extension:
+
+1. Detects the current platform and architecture.
+2. Picks the appropriate binary name.
+3. Resolves the full path inside the extension (`context.asAbsolutePath("server/<binary>")`).
+4. Starts the LSP with that command.
+
+This means:
+
+* You do **not** need to build `shrimpl-lsp` yourself.
+* You do **not** need to add anything to your `PATH`.
+* As soon as the extension is installed, Shrimpl files get diagnostics and hovers.
+
+#### Customizing the LSP Command
+
+Advanced users can override the bundled binary using the `shrimpl.lsp.path` setting.
+
+Example VS Code settings:
+
+```json
+{
+  "shrimpl.lsp.path": "${workspaceFolder}/target/debug/shrimpl-lsp"
+}
+```
+
+The extension:
+
+* Expands `${workspaceFolder}` and `${workspaceFolderBasename}` variables.
+* Resolves relative paths against the first workspace folder.
+* Leaves bare commands (no slashes) to be resolved via `PATH` (for example `"shrimpl-lsp"`).
+
+Diagnostic messages are written to the **Shrimpl** output channel, so you can see exactly which command was used and what error occurred if startup fails.
+
+#### LSP Configuration Options
+
+The extension exposes a configuration schema:
+
+```json
+"configuration": {
+  "type": "object",
+  "title": "Shrimpl",
+  "properties": {
+    "shrimpl.lsp.path": {
+      "type": "string",
+      "default": "shrimpl-lsp",
+      "description": "Command used to start the Shrimpl language server (absolute path, workspace-relative path, or executable name on PATH)."
+    },
+    "shrimpl.lsp.debugArgs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [
+        "--log-level",
+        "debug"
+      ],
+      "description": "Additional arguments passed to the Shrimpl language server when running in debug mode."
+    },
+    "shrimpl.trace.server": {
+      "type": "string",
+      "enum": [
+        "off",
+        "messages",
+        "verbose"
+      ],
+      "default": "off",
+      "description": "Trace level for the Shrimpl language server."
+    }
+  }
+}
+```
+
+Highlights:
+
+* `shrimpl.lsp.path`
+
+  * When empty (recommended for most users), the extension uses the bundled binary.
+  * When set, the extension uses your custom command (for example a debug build in your repo).
+* `shrimpl.lsp.debugArgs`
+
+  * Lets you pass extra flags (for example `--log-level debug`) when VS Code is in debug mode.
+* `shrimpl.trace.server`
+
+  * Controls how much protocol traffic is logged to the dedicated **Shrimpl LSP Trace** output channel.
+
+#### Clean Startup and Shutdown
+
+The extension’s `activate` function:
+
+* Creates two output channels: **Shrimpl** (general logs) and **Shrimpl LSP Trace** (protocol details).
+* Resolves the server command as described above.
+* Starts the language client and shows a notification when ready.
+* Logs any startup failures and shows error notifications instead of failing silently.
+
+On deactivation it stops the client and ensures the LSP process exits cleanly.
+
+### Other Editor Integrations
 
 Sample configurations live under `editors/`:
 
-* **VS Code** (`editors/vscode/`)
 * **Neovim** (`editors/nvim-shrimpl/`)
 * **Sublime Text** (`editors/sublime/`)
 * **JetBrains** (`editors/jetbrains/`)
 
-Each setup wires `.shr` files to `shrimpl-lsp` and provides syntax highlighting plus diagnostics.
+Each setup wires `.shr` files to `shrimpl-lsp` and provides syntax highlighting plus diagnostics. These continue to work exactly as before; the VS Code bundling is an additional, more convenient option.
+
+---
+
+## Icon Theme (Optional)
+
+The VS Code extension can contribute a minimal icon theme:
+
+```json
+"iconThemes": [
+  {
+    "id": "shrimpl-icons",
+    "label": "Shrimpl Icons",
+    "path": "./icon-theme.json"
+  }
+]
+```
+
+* `icon-theme.json` defines a Shrimpl icon (for example for `.shr` files).
+* VS Code allows only one active icon theme at a time.
+
+This means:
+
+* Enabling **Shrimpl Icons** will apply the Shrimpl icon where configured and fall back to generic icons for other file types that are not explicitly mapped.
+* Most users can keep their preferred icon theme (for example Material Icons) and still get Shrimpl language features and LSP support. The icon theme is entirely optional.
 
 ---
 
@@ -1169,13 +1603,14 @@ This format makes it easy to feed logs into other tools or to demonstrate struct
 
 ## Best Practices
 
-* **Use meaningful names** for endpoints and functions.
+* **Use meaningful names** for endpoints, models, and functions.
 * **Keep functions small** and focused on a single idea.
 * **Validate external input** using JSON Schema where possible.
 * **Handle errors explicitly** in endpoint bodies (missing params, invalid values).
 * **Use comments** (`#`) to explain intention, especially in tutorial code.
 * **Stay consistent** with indentation (two spaces) and naming.
 * **Introduce AI helpers gradually** after students are comfortable with basic endpoints.
+* **Use `model` + ORM for persistence** once students are ready to see stateful APIs, instead of introducing SQL directly.
 
 ---
 
@@ -1187,10 +1622,12 @@ The repository is organized into clear layers:
 
   * Tokenizes and parses `.shr` source into an abstract syntax tree (AST).
   * Supports boolean literals, comparison and logical operators, `if / elif / else`, and `repeat` expressions.
+  * Parses `model` declarations into `ModelDef` structures used by the ORM.
 
 * **AST / Core Model (`src/parser/ast.rs`)**
 
-  * Types for `Program`, `EndpointDecl`, `FunctionDef`, `ClassDef`, `Expr`, and more.
+  * Types for `Program`, `EndpointDecl`, `FunctionDef`, `ClassDef`, `ModelDef`, `Expr`, and more.
+  * `Program.models` holds all models declared in Shrimpl code.
 
 * **Interpreter (`src/interpreter/`)**
 
@@ -1198,11 +1635,20 @@ The repository is organized into clear layers:
   * Hosts the Actix‑Web HTTP server.
   * Implements JWT auth, validation, sanitization, and logging.
   * Integrates built‑in libraries (HTTP client, vectors, dataframes, linear regression, AI helpers).
+  * Exposes ORM operations as built‑ins (`orm_insert`, `orm_find_by_id`) and wires request variables into endpoint bodies.
+
+* **ORM (`src/orm.rs`)**
+
+  * Manages a single global SQLite connection (`shrimpl.db`).
+  * Runs `CREATE TABLE IF NOT EXISTS` for each `ModelDef` on startup.
+  * Provides JSON‑based helpers for insert and lookup that are safe to call from Shrimpl built‑ins.
+  * Handles conversion between JSON values and SQLite values.
 
 * **Config (`src/config.rs`)**
 
   * Loads `config/config.<env>.json`.
   * Exposes server, auth, validation, types, secrets, and values sections.
+  * Applies server overrides to `Program.server` before HTTP startup.
 
 * **Lockfile (`src/lockfile.rs`)**
 
@@ -1218,12 +1664,14 @@ The repository is organized into clear layers:
 
   * Parses command‑line arguments.
   * Provides `run`, `check`, and `diagnostics` modes.
+  * Initializes config, applies server overrides, and calls `init_global_orm` before starting the HTTP server.
 
 * **Language Server (`src/bin/shrimpl_lsp.rs`)**
 
   * Implements LSP features on top of the parser and docs modules.
+  * Powers all editor integrations, including the bundled VS Code extension binaries.
 
-This separation keeps language design and teaching concerns clear while allowing the runtime to grow with features like JWT auth, validation, types, and AI integration.
+This separation keeps language design and teaching concerns clear while allowing the runtime to grow with features like JWT auth, validation, types, AI integration, and now a minimal but useful persistence layer.
 
 ---
 
@@ -1237,5 +1685,7 @@ Shrimpl 0.5.x combines the simplicity of a teaching language with practical feat
 * Basic machine learning with linear regression
 * Optional AI‑assisted endpoints with OpenAI helpers
 * Optional JWT auth, JSON Schema validation, and static type checking
+* A SQLite‑backed ORM driven by `model` declarations and simple built‑ins (`orm_insert`, `orm_find_by_id`)
+* A smoother editor experience thanks to a bundled language server in the VS Code extension
 
-Learners can start with a few lines of code, see immediate results in the browser, and progressively discover more advanced ideas without leaving the language.
+Learners can start with a few lines of code, see immediate results in the browser, and progressively discover more advanced ideas like authentication, validation, persistence, and editor tooling without leaving the language.

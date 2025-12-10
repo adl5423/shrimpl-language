@@ -1,73 +1,82 @@
 // src/interpreter/eval.rs
 //
 // Expression evaluator for Shrimpl.
+//
 // Built-ins:
 //
-//   String / basic helpers
-//   ----------------------
-//   len(x)        -> number  (length of string)
-//   upper(x)      -> string  (uppercase)
-//   lower(x)      -> string  (lowercase)
-//   number(x)     -> number  (string/number -> number)
-//   string(x)     -> string  (anything -> string)
+// String / basic helpers
+// ----------------------
+// len(x)    -> number (length of string)
+// upper(x)  -> string (uppercase)
+// lower(x)  -> string (lowercase)
+// number(x) -> number (string/number -> number)
+// string(x) -> string (anything -> string)
 //
-//   Numeric helpers (analysis)
-//   --------------------------
-//   sum(a, b, ...) -> number (sum of numbers)
-//   avg(a, b, ...) -> number (average)
-//   min(a, b, ...) -> number (minimum)
-//   max(a, b, ...) -> number (maximum)
+// Numeric helpers (analysis)
+// --------------------------
+// sum(a, b, ...) -> number (sum of numbers)
+// avg(a, b, ...) -> number (average)
+// min(a, b, ...) -> number (minimum)
+// max(a, b, ...) -> number (maximum)
 //
-//   HTTP helpers (call other APIs)
-//   ------------------------------
-//   http_get(url)        -> string (raw response body)
-//   http_get_json(url)   -> string (pretty JSON or error)
+// HTTP helpers (call other APIs)
+// ------------------------------
+// http_get(url)      -> string (raw response body)
+// http_get_json(url) -> string (pretty JSON or error)
 //
-//   Vector / tensor helpers (PyTorch-ish)
-//   -------------------------------------
-//   vec(a, b, c, ...)          -> string JSON array, e.g. "[1,2,3]"
-//   tensor_add(a, b)           -> string JSON array, elementwise sum
-//   tensor_dot(a, b)           -> number dot product
+// Vector / tensor helpers (PyTorch-ish)
+// -------------------------------------
+// vec(a, b, c, ...)  -> string JSON array, e.g. "[1,2,3]"
+// tensor_add(a, b)   -> string JSON array, elementwise sum
+// tensor_dot(a, b)   -> number dot product
 //
-//   DataFrame helpers (pandas-ish)
-//   ------------------------------
-//   df_from_csv(url)           -> string JSON table
-//       { "columns": [...], "rows": [[...], [...], ...] }
-//   df_head(df_json, n)        -> string JSON table, first n rows
-//   df_select(df_json, cols)   -> string JSON table with selected columns
-//       cols is "col1,col2"
+// DataFrame helpers (pandas-ish)
+// ------------------------------
+// df_from_csv(url)        -> string JSON table
+//                            { "columns": [...], "rows": [[...], [...], ...] }
+// df_head(df_json, n)     -> string JSON table, first n rows
+// df_select(df_json, cols)-> string JSON table with selected columns
+//                            cols is "col1,col2"
 //
-//   ML helpers (scikit-learn-ish, linear regression)
-//   -----------------------------------------------
-//   linreg_fit(xs_json, ys_json) -> string JSON model { "kind":"linreg","a":..,"b":.. }
-//       xs_json, ys_json are JSON arrays, e.g. "[1,2,3]"
-//   linreg_predict(model_json, x) -> number prediction
+// ML helpers (scikit-learn-ish, linear regression)
+// -------------------------------------------------
+// linreg_fit(xs_json, ys_json) -> string JSON model
+//    { "kind":"linreg","a":..,"b":.. }
+// xs_json, ys_json are JSON arrays, e.g. "[1,2,3]"
+// linreg_predict(model_json, x) -> number prediction
 //
-//   OpenAI helpers (Responses / Chat style)
-//   --------------------------------------
-//   openai_set_api_key(key)          -> string "ok"
-//   openai_set_system_prompt(text)   -> string "ok"
-//   openai_chat(user_message)        -> string assistant text
-//   openai_chat_json(user_message)   -> string pretty JSON
-//   openai_mcp_call(server_id, tool_name, args_json) -> string pretty JSON
+// OpenAI helpers (Responses / Chat style)
+// --------------------------------------
+// openai_set_api_key(key)        -> string "ok"
+// openai_set_system_prompt(text) -> string "ok"
+// openai_chat(user_message)      -> string assistant text
+// openai_chat_json(user_message) -> string pretty JSON
+// openai_mcp_call(server_id, tool_name, args_json) -> string pretty JSON
 //
-//   Generic config + env + secrets helpers
-//   --------------------------------------
-//   config_set(key, value)          -> string "ok"
-//   config_get(key)                 -> stored value or ""
-//   config_get(key, default)        -> stored value or default
-//   config_has(key)                 -> bool
-//   env(name)                       -> string env var value or ""
-//   secret(name)                    -> string secret value or error
-//   secret(name, default)           -> secret or default (no error)
+// Generic config + env + secrets helpers
+// --------------------------------------
+// config_set(key, value)            -> string "ok"
+// config_get(key)                   -> stored value or ""
+// config_get(key, default)          -> stored value or default
+// config_has(key)                   -> bool
+// env(name)                         -> string env var value or ""
+// secret(name)                      -> string secret value or error
+// secret(name, default)            -> secret or default (no error)
+//
+// ORM helpers (SQLite via shrimpl.db)
+// -----------------------------------
+// orm_insert(model_name, record_json)   -> string primary key / rowid
+// orm_find_by_id(model_name, id_json)  -> string JSON object or ""
 //
 // All complex objects are passed as JSON strings in Shrimpl.
 // Kids only see numbers, strings, booleans, and function calls.
 
 use crate::config;
-use crate::parser::ast::{BinOp, Expr, FunctionDef, Program};
-use std::collections::HashMap;
+use crate::orm; // <--- NEW: hook into src/orm.rs
 
+use crate::parser::ast::{BinOp, Expr, FunctionDef, Program};
+
+use std::collections::HashMap;
 use serde_json::{json, Value};
 use std::fmt;
 use std::io::Cursor;
@@ -76,6 +85,10 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 use ureq;
+
+// ---------- Result alias ----------
+
+type EvalResult<T> = std::result::Result<T, String>;
 
 // ---------- runtime values ----------
 
@@ -157,15 +170,15 @@ fn get_openai_config() -> &'static Mutex<OpenAIConfig> {
     })
 }
 
-fn openai_post(path: &str, body: &Value) -> Result<Value, String> {
+fn openai_post(path: &str, body: &Value) -> EvalResult<Value> {
     let cfg_lock = get_openai_config();
     let cfg = cfg_lock
         .lock()
         .map_err(|_| "OpenAI config mutex poisoned".to_string())?;
 
     let api_key = cfg.api_key.clone().ok_or_else(|| {
-        "OpenAI API key is not set. \
-         Set SHRIMPL_OPENAI_API_KEY / OPENAI_API_KEY in the environment \
+        "OpenAI API key is not set.\n\
+         Set SHRIMPL_OPENAI_API_KEY / OPENAI_API_KEY in the environment\n\
          or call openai_set_api_key(key) from Shrimpl."
             .to_string()
     })?;
@@ -183,8 +196,8 @@ fn openai_post(path: &str, body: &Value) -> Result<Value, String> {
         )
     };
 
-    let body_text =
-        serde_json::to_string(body).map_err(|e| format!("OpenAI: failed to encode body: {}", e))?;
+    let body_text = serde_json::to_string(body)
+        .map_err(|e| format!("OpenAI: failed to encode body: {}", e))?;
 
     let resp = ureq::post(&url)
         .set("Authorization", &format!("Bearer {}", api_key))
@@ -196,8 +209,10 @@ fn openai_post(path: &str, body: &Value) -> Result<Value, String> {
             let text = r
                 .into_string()
                 .map_err(|e| format!("OpenAI: failed to read body: {}", e))?;
-            let json_val: Value = serde_json::from_str(&text)
-                .map_err(|e| format!("OpenAI: response not valid JSON: {}", e))?;
+            let json_val: Value =
+                serde_json::from_str(&text).map_err(|e| {
+                    format!("OpenAI: response not valid JSON: {}", e)
+                })?;
             Ok(json_val)
         }
         Err(err) => Err(format!("OpenAI HTTP error: {}", err)),
@@ -210,7 +225,7 @@ pub fn eval_body_expr(
     expr: &Expr,
     program: &Program,
     vars: &HashMap<String, String>,
-) -> Result<String, String> {
+) -> EvalResult<String> {
     let mut env = Env::new();
     for (k, v) in vars {
         env.set(k.clone(), ValueRuntime::Str(v.clone()));
@@ -222,7 +237,7 @@ pub fn eval_body_expr(
 
 // ---------- expression evaluation ----------
 
-fn eval_expr(expr: &Expr, program: &Program, env: &Env) -> Result<ValueRuntime, String> {
+fn eval_expr(expr: &Expr, program: &Program, env: &Env) -> EvalResult<ValueRuntime> {
     match expr {
         Expr::Number(n) => Ok(ValueRuntime::Number(*n)),
         Expr::Str(s) => Ok(ValueRuntime::Str(s.clone())),
@@ -256,10 +271,17 @@ fn eval_expr(expr: &Expr, program: &Program, env: &Env) -> Result<ValueRuntime, 
                 .classes
                 .get(class_name)
                 .ok_or_else(|| format!("Undefined class '{}'", class_name))?;
+
             let method = class
                 .methods
                 .get(method_name)
-                .ok_or_else(|| format!("Class '{}' has no method '{}'", class_name, method_name))?;
+                .ok_or_else(|| {
+                    format!(
+                        "Class '{}' has no method '{}'",
+                        class_name, method_name
+                    )
+                })?;
+
             let arg_vals = eval_args(args, program, env)?;
             eval_function(method, arg_vals, program, env)
         }
@@ -281,8 +303,8 @@ fn eval_expr(expr: &Expr, program: &Program, env: &Env) -> Result<ValueRuntime, 
                 let v = eval_expr(vexpr, program, env)?;
                 obj.insert(k.clone(), value_to_json(&v));
             }
-            let txt =
-                serde_json::to_string(&Value::Object(obj)).unwrap_or_else(|_| "{}".to_string());
+            let txt = serde_json::to_string(&Value::Object(obj))
+                .unwrap_or_else(|_| "{}".to_string());
             Ok(ValueRuntime::Str(txt))
         }
 
@@ -296,7 +318,6 @@ fn eval_expr(expr: &Expr, program: &Program, env: &Env) -> Result<ValueRuntime, 
                     return eval_expr(body_expr, program, env);
                 }
             }
-
             if let Some(else_expr) = else_branch {
                 eval_expr(else_expr, program, env)
             } else {
@@ -320,7 +341,6 @@ fn eval_expr(expr: &Expr, program: &Program, env: &Env) -> Result<ValueRuntime, 
             for _ in 0..steps {
                 last = eval_expr(body, program, env)?;
             }
-
             Ok(last)
         }
 
@@ -329,7 +349,14 @@ fn eval_expr(expr: &Expr, program: &Program, env: &Env) -> Result<ValueRuntime, 
             catch_var,
             catch_body,
             finally_body,
-        } => eval_try_expr(try_body, catch_var, catch_body, finally_body, program, env),
+        } => eval_try_expr(
+            try_body,
+            catch_var,
+            catch_body,
+            finally_body,
+            program,
+            env,
+        ),
     }
 }
 
@@ -340,10 +367,10 @@ fn eval_try_expr(
     finally_body: &Option<Box<Expr>>,
     program: &Program,
     env: &Env,
-) -> Result<ValueRuntime, String> {
+) -> EvalResult<ValueRuntime> {
     let mut local_env = Env::with_parent(env);
 
-    let mut result: Result<ValueRuntime, String> = match eval_expr(try_body, program, &local_env) {
+    let mut result: EvalResult<ValueRuntime> = match eval_expr(try_body, program, &local_env) {
         Ok(v) => Ok(v),
         Err(err) => {
             if let Some(catch_expr) = catch_body {
@@ -366,7 +393,11 @@ fn eval_try_expr(
     result
 }
 
-fn eval_args(args: &[Expr], program: &Program, env: &Env) -> Result<Vec<ValueRuntime>, String> {
+fn eval_args(
+    args: &[Expr],
+    program: &Program,
+    env: &Env,
+) -> EvalResult<Vec<ValueRuntime>> {
     let mut out = Vec::new();
     for a in args {
         out.push(eval_expr(a, program, env)?);
@@ -379,7 +410,7 @@ fn eval_function(
     arg_vals: Vec<ValueRuntime>,
     program: &Program,
     parent_env: &Env,
-) -> Result<ValueRuntime, String> {
+) -> EvalResult<ValueRuntime> {
     if arg_vals.len() != func.params.len() {
         return Err(format!(
             "Function '{}' expected {} arguments, got {}",
@@ -404,7 +435,7 @@ fn eval_builtin(
     args: &[Expr],
     program: &Program,
     env: &Env,
-) -> Result<ValueRuntime, String> {
+) -> EvalResult<ValueRuntime> {
     let vals = eval_args(args, program, env)?;
 
     match name {
@@ -414,21 +445,24 @@ fn eval_builtin(
                 return Err("len(x) expects exactly 1 argument".to_string());
             }
             Ok(ValueRuntime::Number(
-                vals[0].to_string().chars().count() as f64
+                vals[0].to_string().chars().count() as f64,
             ))
         }
+
         "upper" => {
             if vals.len() != 1 {
                 return Err("upper(x) expects exactly 1 argument".to_string());
             }
             Ok(ValueRuntime::Str(vals[0].to_string().to_uppercase()))
         }
+
         "lower" => {
             if vals.len() != 1 {
                 return Err("lower(x) expects exactly 1 argument".to_string());
             }
             Ok(ValueRuntime::Str(vals[0].to_string().to_lowercase()))
         }
+
         "number" => {
             if vals.len() != 1 {
                 return Err("number(x) expects exactly 1 argument".to_string());
@@ -436,6 +470,7 @@ fn eval_builtin(
             let n = as_number(&vals[0])?;
             Ok(ValueRuntime::Number(n))
         }
+
         "string" => {
             if vals.len() != 1 {
                 return Err("string(x) expects exactly 1 argument".to_string());
@@ -454,6 +489,7 @@ fn eval_builtin(
             }
             Ok(ValueRuntime::Number(total))
         }
+
         "avg" => {
             if vals.is_empty() {
                 return Err("avg(...) expects at least 1 argument".to_string());
@@ -464,6 +500,7 @@ fn eval_builtin(
             }
             Ok(ValueRuntime::Number(total / (vals.len() as f64)))
         }
+
         "min" => {
             if vals.is_empty() {
                 return Err("min(...) expects at least 1 argument".to_string());
@@ -477,6 +514,7 @@ fn eval_builtin(
             }
             Ok(ValueRuntime::Number(best))
         }
+
         "max" => {
             if vals.is_empty() {
                 return Err("max(...) expects at least 1 argument".to_string());
@@ -494,17 +532,24 @@ fn eval_builtin(
         // --- generic config + env + secrets helpers ---
         "config_set" => {
             if vals.len() != 2 {
-                return Err("config_set(key, value) expects 2 arguments".to_string());
+                return Err(
+                    "config_set(key, value) expects 2 arguments".to_string(),
+                );
             }
             let key = vals[0].to_string();
             let value_json = value_to_json(&vals[1]);
             config::set_value(&key, value_json);
             Ok(ValueRuntime::Str("ok".to_string()))
         }
+
         "config_get" => {
             if vals.is_empty() || vals.len() > 2 {
-                return Err("config_get(key, [default]) expects 1 or 2 arguments".to_string());
+                return Err(
+                    "config_get(key, [default]) expects 1 or 2 arguments"
+                        .to_string(),
+                );
             }
+
             let key = vals[0].to_string();
             if let Some(raw) = config::get_value(&key) {
                 Ok(json_to_runtime_value(&raw))
@@ -514,14 +559,18 @@ fn eval_builtin(
                 Ok(ValueRuntime::Str(String::new()))
             }
         }
+
         "config_has" => {
             if vals.len() != 1 {
-                return Err("config_has(key) expects exactly 1 argument".to_string());
+                return Err(
+                    "config_has(key) expects exactly 1 argument".to_string(),
+                );
             }
             let key = vals[0].to_string();
             let exists = config::has_value(&key);
             Ok(ValueRuntime::Bool(exists))
         }
+
         "env" => {
             if vals.len() != 1 {
                 return Err("env(name) expects exactly 1 argument".to_string());
@@ -530,11 +579,16 @@ fn eval_builtin(
             let value = env::var(&name).unwrap_or_else(|_| String::new());
             Ok(ValueRuntime::Str(value))
         }
+
         "secret" => {
             // secret(name) or secret(name, default)
             if vals.is_empty() || vals.len() > 2 {
-                return Err("secret(name, [default]) expects 1 or 2 arguments".to_string());
+                return Err(
+                    "secret(name, [default]) expects 1 or 2 arguments"
+                        .to_string(),
+                );
             }
+
             let logical = vals[0].to_string();
 
             let env_key = config::secret_env_from_file(&logical)
@@ -571,34 +625,50 @@ fn eval_builtin(
         // --- HTTP client helpers ---
         "http_get" => {
             if vals.len() != 1 {
-                return Err("http_get(url) expects exactly 1 argument".to_string());
+                return Err(
+                    "http_get(url) expects exactly 1 argument".to_string(),
+                );
             }
             let url = vals[0].to_string();
             let resp = ureq::get(&url).call();
             match resp {
                 Ok(r) => match r.into_string() {
                     Ok(body) => Ok(ValueRuntime::Str(body)),
-                    Err(err) => Err(format!("http_get({}): failed to read body: {}", url, err)),
+                    Err(err) => Err(format!(
+                        "http_get({}): failed to read body: {}",
+                        url, err
+                    )),
                 },
                 Err(err) => Err(format!("http_get({}): {}", url, err)),
             }
         }
+
         "http_get_json" => {
             if vals.len() != 1 {
-                return Err("http_get_json(url) expects exactly 1 argument".to_string());
+                return Err(
+                    "http_get_json(url) expects exactly 1 argument".to_string(),
+                );
             }
             let url = vals[0].to_string();
             let resp = ureq::get(&url).call();
             match resp {
                 Ok(r) => {
                     let text = r.into_string().map_err(|e| {
-                        format!("http_get_json({}): failed to read body: {}", url, e)
+                        format!(
+                            "http_get_json({}): failed to read body: {}",
+                            url, e
+                        )
                     })?;
-                    let json_val: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
-                        format!("http_get_json({}): response was not valid JSON: {}", url, e)
-                    })?;
+                    let json_val: serde_json::Value =
+                        serde_json::from_str(&text).map_err(|e| {
+                            format!(
+                                "http_get_json({}): response was not valid JSON: {}",
+                                url, e
+                            )
+                        })?;
                     Ok(ValueRuntime::Str(
-                        serde_json::to_string_pretty(&json_val).unwrap_or_else(|_| text.clone()),
+                        serde_json::to_string_pretty(&json_val)
+                            .unwrap_or_else(|_| text.clone()),
                     ))
                 }
                 Err(err) => Err(format!("http_get_json({}): {}", url, err)),
@@ -618,41 +688,55 @@ fn eval_builtin(
                     arr.push(json!(v.to_string()));
                 }
             }
-            let txt =
-                serde_json::to_string(&Value::Array(arr)).unwrap_or_else(|_| "[]".to_string());
+            let txt = serde_json::to_string(&Value::Array(arr))
+                .unwrap_or_else(|_| "[]".to_string());
             Ok(ValueRuntime::Str(txt))
         }
+
         "tensor_add" => {
             if vals.len() != 2 {
-                return Err("tensor_add(a, b) expects 2 arguments".to_string());
+                return Err(
+                    "tensor_add(a, b) expects 2 arguments".to_string(),
+                );
             }
             let a_txt = vals[0].to_string();
             let b_txt = vals[1].to_string();
             let arr_a = parse_json_array_numbers("tensor_add a", &a_txt)?;
             let arr_b = parse_json_array_numbers("tensor_add b", &b_txt)?;
+
             if arr_a.len() != arr_b.len() {
-                return Err("tensor_add: arrays must have the same length".to_string());
+                return Err(
+                    "tensor_add: arrays must have the same length".to_string(),
+                );
             }
+
             let summed: Vec<Value> = arr_a
                 .iter()
                 .zip(arr_b.iter())
                 .map(|(x, y)| json!(x + y))
                 .collect();
-            let txt =
-                serde_json::to_string(&Value::Array(summed)).unwrap_or_else(|_| "[]".to_string());
+            let txt = serde_json::to_string(&Value::Array(summed))
+                .unwrap_or_else(|_| "[]".to_string());
             Ok(ValueRuntime::Str(txt))
         }
+
         "tensor_dot" => {
             if vals.len() != 2 {
-                return Err("tensor_dot(a, b) expects 2 arguments".to_string());
+                return Err(
+                    "tensor_dot(a, b) expects 2 arguments".to_string(),
+                );
             }
             let a_txt = vals[0].to_string();
             let b_txt = vals[1].to_string();
             let arr_a = parse_json_array_numbers("tensor_dot a", &a_txt)?;
             let arr_b = parse_json_array_numbers("tensor_dot b", &b_txt)?;
+
             if arr_a.len() != arr_b.len() {
-                return Err("tensor_dot: arrays must have the same length".to_string());
+                return Err(
+                    "tensor_dot: arrays must have the same length".to_string(),
+                );
             }
+
             let mut dot = 0.0;
             for (x, y) in arr_a.iter().zip(arr_b.iter()) {
                 dot += x * y;
@@ -663,14 +747,19 @@ fn eval_builtin(
         // --- DataFrame helpers ---
         "df_from_csv" => {
             if vals.len() != 1 {
-                return Err("df_from_csv(url) expects exactly 1 argument".to_string());
+                return Err(
+                    "df_from_csv(url) expects exactly 1 argument".to_string(),
+                );
             }
             let url = vals[0].to_string();
             let resp = ureq::get(&url).call();
             let text = match resp {
-                Ok(r) => r
-                    .into_string()
-                    .map_err(|e| format!("df_from_csv({}): failed to read body: {}", url, e))?,
+                Ok(r) => r.into_string().map_err(|e| {
+                    format!(
+                        "df_from_csv({}): failed to read body: {}",
+                        url, e
+                    )
+                })?,
                 Err(err) => {
                     return Err(format!("df_from_csv({}): {}", url, err));
                 }
@@ -680,15 +769,23 @@ fn eval_builtin(
                 .has_headers(true)
                 .from_reader(Cursor::new(text.into_bytes()));
 
-            let headers_record = rdr
-                .headers()
-                .map_err(|e| format!("df_from_csv({}): failed to read headers: {}", url, e))?;
-            let headers: Vec<String> = headers_record.iter().map(|s| s.to_string()).collect();
+            let headers_record = rdr.headers().map_err(|e| {
+                format!(
+                    "df_from_csv({}): failed to read headers: {}",
+                    url, e
+                )
+            })?;
+            let headers: Vec<String> =
+                headers_record.iter().map(|s| s.to_string()).collect();
 
             let mut rows_json: Vec<Value> = Vec::new();
             for rec in rdr.records() {
-                let record =
-                    rec.map_err(|e| format!("df_from_csv({}): failed to read record: {}", url, e))?;
+                let record = rec.map_err(|e| {
+                    format!(
+                        "df_from_csv({}): failed to read record: {}",
+                        url, e
+                    )
+                })?;
                 let mut row_vals: Vec<Value> = Vec::new();
                 for field in record.iter() {
                     if let Ok(n) = field.parse::<f64>() {
@@ -705,41 +802,59 @@ fn eval_builtin(
                 "rows": rows_json
             });
 
-            let txt = serde_json::to_string(&table).unwrap_or_else(|_| "{}".to_string());
+            let txt = serde_json::to_string(&table)
+                .unwrap_or_else(|_| "{}".to_string());
             Ok(ValueRuntime::Str(txt))
         }
+
         "df_head" => {
             if vals.len() != 2 {
-                return Err("df_head(df_json, n) expects 2 arguments".to_string());
+                return Err(
+                    "df_head(df_json, n) expects 2 arguments".to_string(),
+                );
             }
             let df_txt = vals[0].to_string();
             let n = as_number(&vals[1])? as usize;
+
             let mut df = parse_df(&df_txt)?;
             if df.rows.len() > n {
                 df.rows.truncate(n);
             }
+
             let table = json!({
                 "columns": df.columns,
                 "rows": df.rows,
             });
-            let txt = serde_json::to_string_pretty(&table).unwrap_or(df_txt);
+
+            let txt = serde_json::to_string_pretty(&table)
+                .unwrap_or(df_txt);
             Ok(ValueRuntime::Str(txt))
         }
+
         "df_select" => {
             if vals.len() != 2 {
-                return Err("df_select(df_json, columns) expects 2 arguments".to_string());
+                return Err(
+                    "df_select(df_json, columns) expects 2 arguments"
+                        .to_string(),
+                );
             }
             let df_txt = vals[0].to_string();
             let cols_str = vals[1].to_string();
+
             let col_names: Vec<String> = cols_str
                 .split(',')
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect();
+
             if col_names.is_empty() {
-                return Err("df_select: columns string must not be empty".to_string());
+                return Err(
+                    "df_select: columns string must not be empty".to_string(),
+                );
             }
+
             let df = parse_df(&df_txt)?;
+
             let mut indices = Vec::new();
             for name in &col_names {
                 match df.columns.iter().position(|c| c == name) {
@@ -752,45 +867,67 @@ fn eval_builtin(
                     }
                 }
             }
+
             let mut new_rows: Vec<Value> = Vec::new();
             for row in df.rows {
                 let mut new_vals: Vec<Value> = Vec::new();
                 let row_arr = match row {
                     Value::Array(v) => v,
                     _ => {
-                        return Err("df_select: row is not an array".to_string());
+                        return Err(
+                            "df_select: row is not an array".to_string()
+                        );
                     }
                 };
+
                 for &idx in &indices {
                     if idx >= row_arr.len() {
-                        return Err("df_select: row shorter than expected".to_string());
+                        return Err(
+                            "df_select: row shorter than expected".to_string()
+                        );
                     }
                     new_vals.push(row_arr[idx].clone());
                 }
+
                 new_rows.push(Value::Array(new_vals));
             }
+
             let table = json!({
                 "columns": col_names,
                 "rows": new_rows,
             });
-            let txt = serde_json::to_string_pretty(&table).unwrap_or(df_txt);
+
+            let txt = serde_json::to_string_pretty(&table)
+                .unwrap_or(df_txt);
             Ok(ValueRuntime::Str(txt))
         }
 
         // --- ML helpers: simple linear regression ---
         "linreg_fit" => {
             if vals.len() != 2 {
-                return Err("linreg_fit(xs_json, ys_json) expects 2 arguments".to_string());
+                return Err(
+                    "linreg_fit(xs_json, ys_json) expects 2 arguments"
+                        .to_string(),
+                );
             }
             let xs_txt = vals[0].to_string();
             let ys_txt = vals[1].to_string();
-            let xs = parse_json_array_numbers("linreg_fit xs", &xs_txt)?;
-            let ys = parse_json_array_numbers("linreg_fit ys", &ys_txt)?;
+
+            let xs =
+                parse_json_array_numbers("linreg_fit xs", &xs_txt)?;
+            let ys =
+                parse_json_array_numbers("linreg_fit ys", &ys_txt)?;
+
             if xs.len() != ys.len() {
-                return Err("linreg_fit: xs and ys must have the same length".to_string());
+                return Err(
+                    "linreg_fit: xs and ys must have the same length"
+                        .to_string(),
+                );
             }
             if xs.len() < 2 {
-                return Err("linreg_fit: need at least 2 points".to_string());
+                return Err(
+                    "linreg_fit: need at least 2 points".to_string(),
+                );
             }
 
             let n = xs.len() as f64;
@@ -805,36 +942,60 @@ fn eval_builtin(
                 num += dx * dy;
                 den += dx * dx;
             }
+
             if den == 0.0 {
-                return Err("linreg_fit: variance of x is zero".to_string());
+                return Err(
+                    "linreg_fit: variance of x is zero".to_string(),
+                );
             }
+
             let a = num / den;
             let b = mean_y - a * mean_x;
 
             let model = json!({
                 "kind": "linreg",
                 "a": a,
-                "b": b
+                "b": b,
             });
-            let txt = serde_json::to_string(&model).unwrap_or_else(|_| "{}".to_string());
+
+            let txt = serde_json::to_string(&model)
+                .unwrap_or_else(|_| "{}".to_string());
             Ok(ValueRuntime::Str(txt))
         }
+
         "linreg_predict" => {
             if vals.len() != 2 {
-                return Err("linreg_predict(model_json, x) expects 2 arguments".to_string());
+                return Err(
+                    "linreg_predict(model_json, x) expects 2 arguments"
+                        .to_string(),
+                );
             }
             let model_txt = vals[0].to_string();
             let x = as_number(&vals[1])?;
+
             let model_val: Value = serde_json::from_str(&model_txt)
-                .map_err(|e| format!("linreg_predict: model_json is not valid JSON: {}", e))?;
+                .map_err(|e| {
+                    format!(
+                        "linreg_predict: model_json is not valid JSON: {}",
+                        e
+                    )
+                })?;
+
             let a = model_val
                 .get("a")
                 .and_then(|v| v.as_f64())
-                .ok_or_else(|| "linreg_predict: model missing numeric 'a'".to_string())?;
+                .ok_or_else(|| {
+                    "linreg_predict: model missing numeric 'a'"
+                        .to_string()
+                })?;
             let b = model_val
                 .get("b")
                 .and_then(|v| v.as_f64())
-                .ok_or_else(|| "linreg_predict: model missing numeric 'b'".to_string())?;
+                .ok_or_else(|| {
+                    "linreg_predict: model missing numeric 'b'"
+                        .to_string()
+                })?;
+
             let y = a * x + b;
             Ok(ValueRuntime::Number(y))
         }
@@ -842,7 +1003,10 @@ fn eval_builtin(
         // --- OpenAI / AI helpers ---
         "openai_set_api_key" => {
             if vals.len() != 1 {
-                return Err("openai_set_api_key(key) expects exactly 1 argument".to_string());
+                return Err(
+                    "openai_set_api_key(key) expects exactly 1 argument"
+                        .to_string(),
+                );
             }
             let key = vals[0].to_string();
             let cfg_lock = get_openai_config();
@@ -852,9 +1016,13 @@ fn eval_builtin(
             cfg.api_key = Some(key);
             Ok(ValueRuntime::Str("ok".to_string()))
         }
+
         "openai_set_system_prompt" => {
             if vals.len() != 1 {
-                return Err("openai_set_system_prompt(prompt) expects 1 argument".to_string());
+                return Err(
+                    "openai_set_system_prompt(prompt) expects 1 argument"
+                        .to_string(),
+                );
             }
             let prompt = vals[0].to_string();
             let cfg_lock = get_openai_config();
@@ -864,9 +1032,13 @@ fn eval_builtin(
             cfg.system_prompt = Some(prompt);
             Ok(ValueRuntime::Str("ok".to_string()))
         }
+
         "openai_chat" => {
             if vals.len() != 1 {
-                return Err("openai_chat(user_message) expects 1 argument".to_string());
+                return Err(
+                    "openai_chat(user_message) expects 1 argument"
+                        .to_string(),
+                );
             }
             let user_msg = vals[0].to_string();
 
@@ -880,10 +1052,7 @@ fn eval_builtin(
 
             let mut messages: Vec<Value> = Vec::new();
             if let Some(sp) = system_prompt {
-                messages.push(json!({
-                    "role": "system",
-                    "content": sp
-                }));
+                messages.push(json!({ "role": "system", "content": sp }));
             }
             messages.push(json!({
                 "role": "user",
@@ -892,7 +1061,7 @@ fn eval_builtin(
 
             let payload = json!({
                 "model": model,
-                "messages": messages
+                "messages": messages,
             });
 
             let json_resp = openai_post("chat/completions", &payload)?;
@@ -908,9 +1077,13 @@ fn eval_builtin(
 
             Ok(ValueRuntime::Str(text))
         }
+
         "openai_chat_json" => {
             if vals.len() != 1 {
-                return Err("openai_chat_json(user_message) expects 1 argument".to_string());
+                return Err(
+                    "openai_chat_json(user_message) expects 1 argument"
+                        .to_string(),
+                );
             }
             let user_msg = vals[0].to_string();
 
@@ -924,10 +1097,7 @@ fn eval_builtin(
 
             let mut messages: Vec<Value> = Vec::new();
             if let Some(sp) = system_prompt {
-                messages.push(json!({
-                    "role": "system",
-                    "content": sp
-                }));
+                messages.push(json!({ "role": "system", "content": sp }));
             }
             messages.push(json!({
                 "role": "user",
@@ -936,14 +1106,15 @@ fn eval_builtin(
 
             let payload = json!({
                 "model": model,
-                "messages": messages
+                "messages": messages,
             });
 
             let json_resp = openai_post("chat/completions", &payload)?;
-            let txt =
-                serde_json::to_string_pretty(&json_resp).unwrap_or_else(|_| json_resp.to_string());
+            let txt = serde_json::to_string_pretty(&json_resp)
+                .unwrap_or_else(|_| json_resp.to_string());
             Ok(ValueRuntime::Str(txt))
         }
+
         "openai_mcp_call" => {
             if vals.len() != 3 {
                 return Err(
@@ -951,11 +1122,13 @@ fn eval_builtin(
                         .to_string(),
                 );
             }
+
             let server_id = vals[0].to_string();
             let tool_name = vals[1].to_string();
             let args_raw = vals[2].to_string();
-            let args_val: Value =
-                serde_json::from_str(&args_raw).unwrap_or_else(|_| json!({ "raw": args_raw }));
+
+            let args_val: Value = serde_json::from_str(&args_raw)
+                .unwrap_or_else(|_| json!({ "raw": args_raw }));
 
             let cfg_lock = get_openai_config();
             let cfg = cfg_lock
@@ -969,13 +1142,53 @@ fn eval_builtin(
                 "input": format!(
                     "Call MCP tool '{}' on server '{}' with args: {}",
                     tool_name, server_id, args_val
-                )
+                ),
             });
 
             let json_resp = openai_post("responses", &payload)?;
-            let txt =
-                serde_json::to_string_pretty(&json_resp).unwrap_or_else(|_| json_resp.to_string());
+            let txt = serde_json::to_string_pretty(&json_resp)
+                .unwrap_or_else(|_| json_resp.to_string());
             Ok(ValueRuntime::Str(txt))
+        }
+
+        // --- ORM helpers (NEW) ---
+        "orm_insert" => {
+            if vals.len() != 2 {
+                return Err(
+                    "orm_insert(model_name, record_json) expects 2 arguments"
+                        .to_string(),
+                );
+            }
+
+            let model_name = vals[0].to_string();
+            let record_json = vals[1].to_string();
+
+            let rowid = orm::orm_insert(&model_name, &record_json)
+                .map_err(|e| format!("orm_insert: {}", e))?;
+
+            Ok(ValueRuntime::Str(rowid))
+        }
+
+        "orm_find_by_id" => {
+            if vals.len() != 2 {
+                return Err(
+                    "orm_find_by_id(model_name, id_json) expects 2 arguments"
+                        .to_string(),
+                );
+            }
+
+            let model_name = vals[0].to_string();
+            let id_json = vals[1].to_string();
+
+            let result = orm::orm_find_by_id(&model_name, &id_json)
+                .map_err(|e| format!("orm_find_by_id: {}", e))?;
+
+            let out = match result {
+                Some(json) => json,
+                None => String::new(),
+            };
+
+            Ok(ValueRuntime::Str(out))
         }
 
         _ => Err(format!("Undefined function '{}'", name)),
@@ -988,7 +1201,10 @@ fn value_to_json(v: &ValueRuntime) -> Value {
     match v {
         ValueRuntime::Number(n) => json!(n),
         ValueRuntime::Bool(b) => json!(*b),
-        ValueRuntime::Str(s) => serde_json::from_str::<Value>(s).unwrap_or_else(|_| json!(s)),
+        ValueRuntime::Str(s) => {
+            // Try to parse as JSON; fall back to string.
+            serde_json::from_str::<Value>(s).unwrap_or_else(|_| json!(s))
+        }
     }
 }
 
@@ -1004,7 +1220,7 @@ fn json_to_runtime_value(v: &Value) -> ValueRuntime {
     }
 }
 
-fn as_number(v: &ValueRuntime) -> Result<f64, String> {
+fn as_number(v: &ValueRuntime) -> EvalResult<f64> {
     match v {
         ValueRuntime::Number(n) => Ok(*n),
         ValueRuntime::Str(s) => s
@@ -1014,7 +1230,7 @@ fn as_number(v: &ValueRuntime) -> Result<f64, String> {
     }
 }
 
-fn as_bool(v: &ValueRuntime) -> Result<bool, String> {
+fn as_bool(v: &ValueRuntime) -> EvalResult<bool> {
     match v {
         ValueRuntime::Bool(b) => Ok(*b),
         ValueRuntime::Number(n) => Ok(*n != 0.0),
@@ -1026,16 +1242,19 @@ fn eval_binary(
     left: &ValueRuntime,
     op: &BinOp,
     right: &ValueRuntime,
-) -> Result<ValueRuntime, String> {
+) -> EvalResult<ValueRuntime> {
     match op {
         BinOp::Add => match (left, right) {
-            (ValueRuntime::Number(a), ValueRuntime::Number(b)) => Ok(ValueRuntime::Number(a + b)),
+            (ValueRuntime::Number(a), ValueRuntime::Number(b)) => {
+                Ok(ValueRuntime::Number(a + b))
+            }
             _ => Ok(ValueRuntime::Str(format!("{}{}", left, right))),
         },
 
         BinOp::Sub | BinOp::Mul | BinOp::Div => {
             let a = as_number(left)?;
             let b = as_number(right)?;
+
             let res = match op {
                 BinOp::Sub => a - b,
                 BinOp::Mul => a * b,
@@ -1047,6 +1266,7 @@ fn eval_binary(
                 }
                 _ => unreachable!(),
             };
+
             Ok(ValueRuntime::Number(res))
         }
 
@@ -1095,8 +1315,13 @@ fn eval_binary(
     }
 }
 
-fn parse_json_array_numbers(label: &str, text: &str) -> Result<Vec<f64>, String> {
-    let val: Value = serde_json::from_str(text).unwrap_or_else(|_| json!(text));
+fn parse_json_array_numbers(
+    label: &str,
+    text: &str,
+) -> EvalResult<Vec<f64>> {
+    let val: Value =
+        serde_json::from_str(text).unwrap_or_else(|_| json!(text));
+
     let arr = if let Some(arr) = val.as_array() {
         arr
     } else {
@@ -1108,14 +1333,15 @@ fn parse_json_array_numbers(label: &str, text: &str) -> Result<Vec<f64>, String>
         if let Some(n) = v.as_f64() {
             out.push(n);
         } else if let Some(s) = v.as_str() {
-            let n = s
-                .parse::<f64>()
-                .map_err(|_| format!("{}: element '{}' is not a number", label, s))?;
+            let n = s.parse::<f64>().map_err(|_| {
+                format!("{}: element '{}' is not a number", label, s)
+            })?;
             out.push(n);
         } else {
             return Err(format!("{}: element is not a number", label));
         }
     }
+
     Ok(out)
 }
 
@@ -1124,25 +1350,29 @@ struct DataFrame {
     rows: Vec<Value>,
 }
 
-fn parse_df(text: &str) -> Result<DataFrame, String> {
-    let val: Value =
-        serde_json::from_str(text).map_err(|e| format!("df: not valid JSON table: {}", e))?;
+fn parse_df(text: &str) -> EvalResult<DataFrame> {
+    let val: Value = serde_json::from_str(text)
+        .map_err(|e| format!("df: not valid JSON table: {}", e))?;
+
     let cols_val = val
         .get("columns")
         .ok_or_else(|| "df: missing 'columns' field".to_string())?;
     let rows_val = val
         .get("rows")
         .ok_or_else(|| "df: missing 'rows' field".to_string())?;
+
     let cols_arr = cols_val
         .as_array()
         .ok_or_else(|| "df: 'columns' is not an array".to_string())?;
     let rows_arr = rows_val
         .as_array()
         .ok_or_else(|| "df: 'rows' is not an array".to_string())?;
+
     let columns: Vec<String> = cols_arr
         .iter()
         .map(|c| c.as_str().unwrap_or("").to_string())
         .collect();
     let rows: Vec<Value> = rows_arr.to_vec();
+
     Ok(DataFrame { columns, rows })
 }

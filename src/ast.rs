@@ -148,11 +148,21 @@ pub struct ClassDef {
     pub methods: HashMap<String, FunctionDef>,
 }
 
+/// Optional rate limit decoration for an endpoint, provided via
+/// @rate_limit(max_requests, window_secs) or @rate_limit max window_secs.
+#[derive(Debug, Clone)]
+pub struct RateLimit {
+    pub max_requests: u32,
+    pub window_secs: u32,
+}
+
 #[derive(Debug, Clone)]
 pub struct EndpointDecl {
     pub method: Method,
     pub path: String,
     pub body: Body,
+    /// Optional rate limit applied to this endpoint.
+    pub rate_limit: Option<RateLimit>,
 }
 
 /// Secret declarations, mapping a logical name used in Shrimpl code to an
@@ -166,6 +176,49 @@ pub struct SecretDecl {
     pub key: String,
 }
 
+/// A single field inside a `model` declaration.
+///
+/// Example Shrimpl:
+///
+///   model User:
+///     id: int pk
+///     name: string
+///     age?: int
+///
+/// Here:
+///   - `id`  -> ty="int",   is_primary_key=true,  is_optional=false
+///   - `name`-> ty="string",is_primary_key=false, is_optional=false
+///   - `age` -> ty="int",   is_primary_key=false, is_optional=true
+#[derive(Debug, Clone)]
+pub struct ModelField {
+    pub name: String,
+    pub ty: String,
+    pub is_primary_key: bool,
+    pub is_optional: bool,
+}
+
+/// A model definition describing a table/entity for the ORM layer.
+#[derive(Debug, Clone)]
+pub struct ModelDef {
+    /// Model name as written in Shrimpl (e.g. "User").
+    pub name: String,
+    /// Backing SQL table name (e.g. "users"). For now we just use `name`
+    /// as-is; callers may downcase or pluralize.
+    pub table_name: String,
+    pub fields: Vec<ModelField>,
+}
+
+/// A single test case defined in Shrimpl source:
+///
+///   test "name":
+///     assert <expr>
+///     assert <expr>
+#[derive(Debug, Clone)]
+pub struct TestCase {
+    pub name: String,
+    pub assertions: Vec<Expr>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Program {
     pub server: ServerDecl,
@@ -173,4 +226,8 @@ pub struct Program {
     pub functions: HashMap<String, FunctionDef>,
     pub classes: HashMap<String, ClassDef>,
     pub secrets: Vec<SecretDecl>,
+    /// All tests defined via `test "name": ...`.
+    pub tests: Vec<TestCase>,
+    /// All `model` declarations keyed by model name.
+    pub models: HashMap<String, ModelDef>,
 }
