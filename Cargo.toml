@@ -1,6 +1,6 @@
 [package]
 name = "shrimpl"
-version = "0.5.4"
+version = "0.5.5"
 edition = "2021"
 license = "MIT"
 description = "Shrimpl programming language and LSP"
@@ -34,6 +34,11 @@ jsonwebtoken = { version = "9", default-features = false }
 jsonschema = "0.17"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+
+# ORM + cache/concurrency utilities
+rusqlite = { version = "0.31", features = ["bundled"] }
+base64 = "0.22"
+futures = "0.3"
 
 [[bin]]
 name = "shrimpl"

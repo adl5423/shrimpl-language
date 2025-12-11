@@ -7,6 +7,7 @@ mod config;
 mod docs;
 mod interpreter;
 mod lockfile;
+mod orm;
 mod parser;
 
 use config as shrimpl_config;
@@ -51,6 +52,13 @@ fn print_welcome_screen() {
     println!("  shrimpl --file app.shr diagnostics");
     println!("      Print static diagnostics JSON for endpoints/functions.");
     println!();
+    println!("  shrimpl --file app.shr lint");
+    println!("      Run lints and print human-readable diagnostics.");
+    println!("      Exits with status 1 if there are errors.");
+    println!();
+    println!("  shrimpl --file app.shr format");
+    println!("      Format Shrimpl source in-place (whitespace cleanup).");
+    println!();
     println!("  shrimpl lsp");
     println!("      Start the Shrimpl language server (LSP) using `shrimpl-lsp`.");
     println!("      Use `shrimpl lsp --exe path/to/shrimpl-lsp` to point at a custom binary.");
@@ -82,14 +90,20 @@ enum Commands {
     /// Run the Shrimpl server
     Run,
 
-    /// Check syntax and print diagnostics
+    /// Check syntax only
     Check,
 
     /// Print schema JSON
     Schema,
 
-    /// Print diagnostics JSON
+    /// Print raw diagnostics JSON
     Diagnostics,
+
+    /// Human-readable lints (errors/warnings) with CI-friendly exit code
+    Lint,
+
+    /// Format Shrimpl source in-place
+    Format,
 
     /// Start the Shrimpl language server (LSP) binary
     ///
@@ -135,6 +149,12 @@ fn run_cli() -> Result<(), Box<dyn Error>> {
             // Apply server overrides from config file (port / tls).
             shrimpl_config::apply_server_to_program(&mut program);
 
+            // Initialize ORM based on all `model` declarations.
+            // This is best-effort; failures are logged but do not prevent startup.
+            if let Err(e) = orm::init_global_orm(&program) {
+                eprintln!("[shrimpl-orm] failed to initialize ORM: {e}");
+            }
+
             let port = program.server.port;
             let scheme = if program.server.tls { "https" } else { "http" };
 
@@ -170,6 +190,58 @@ fn run_cli() -> Result<(), Box<dyn Error>> {
             let diags = docs::build_diagnostics(&program);
             println!("{}", serde_json::to_string_pretty(&diags)?);
         }
+
+        Commands::Lint => {
+            let (_source, program) = load_and_parse(&cli.file)?;
+            let diags_json: serde_json::Value = docs::build_diagnostics(&program);
+
+            let errors = diags_json
+                .get("errors")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let warnings = diags_json
+                .get("warnings")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+
+            if errors.is_empty() && warnings.is_empty() {
+                println!("No lints: {}", &cli.file);
+            } else {
+                for item in &errors {
+                    let msg = item
+                        .get("message")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Shrimpl error");
+                    println!("error: {msg}");
+                }
+                for item in &warnings {
+                    let msg = item
+                        .get("message")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Shrimpl warning");
+                    println!("warning: {msg}");
+                }
+            }
+
+            if !errors.is_empty() {
+                // Non-zero exit so CI can fail on errors.
+                std::process::exit(1);
+            }
+        }
+
+        Commands::Format => {
+            let (source, _program) = load_and_parse(&cli.file)?;
+            let formatted = format_source(&source);
+
+            if formatted == source {
+                println!("Already formatted: {}", &cli.file);
+            } else {
+                fs::write(&cli.file, formatted)?;
+                println!("Reformatted {}", &cli.file);
+            }
+        }
     }
 
     Ok(())
@@ -186,6 +258,35 @@ fn load_and_parse(path: &str) -> Result<(String, ast::Program), Box<dyn Error>> 
     write_lockfile(SHRIMPL_VERSION, &env_name, path, &source);
 
     Ok((source, program))
+}
+
+/// Simple, safe formatter:
+/// - converts tabs to two spaces
+/// - strips trailing whitespace
+/// - ensures the file ends with a single '\n'
+fn format_source(source: &str) -> String {
+    let mut out_lines = Vec::new();
+
+    for line in source.lines() {
+        // Normalize tabs to two spaces to avoid mixed indentation.
+        let mut s = line.replace('\t', "  ");
+
+        // Strip trailing spaces/tabs.
+        while s.ends_with(' ') || s.ends_with('\t') {
+            s.pop();
+        }
+
+        out_lines.push(s);
+    }
+
+    let mut result = out_lines.join("\n");
+
+    // Ensure a final newline for POSIX-friendly tools.
+    if !result.ends_with('\n') {
+        result.push('\n');
+    }
+
+    result
 }
 
 /// Start the external shrimpl-lsp process and wait for it to exit.

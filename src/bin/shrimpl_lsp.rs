@@ -192,11 +192,20 @@ struct ClassOutline {
 }
 
 #[derive(Debug, Clone)]
+struct ModelOutline {
+    name: String,
+    line: u32,
+    start_char: u32,
+    end_char: u32,
+}
+
+#[derive(Debug, Clone)]
 struct Outline {
     server: Option<ServerOutline>,
     endpoints: Vec<EndpointOutline>,
     functions: Vec<FunctionOutline>,
     classes: Vec<ClassOutline>,
+    models: Vec<ModelOutline>,
 }
 
 /// Build a lightweight outline by scanning the Shrimpl source text.
@@ -206,6 +215,7 @@ fn parse_outline(text: &str) -> Outline {
         endpoints: Vec::new(),
         functions: Vec::new(),
         classes: Vec::new(),
+        models: Vec::new(),
     };
 
     let lines: Vec<&str> = text.lines().collect();
@@ -219,7 +229,6 @@ fn parse_outline(text: &str) -> Outline {
         let end_char = line.len() as u32;
 
         if let Some(rest) = trimmed.strip_prefix("server") {
-            // FIX: remove trim_start() before split_whitespace
             let parts: Vec<&str> = rest.split_whitespace().collect();
             let port = if !parts.is_empty() {
                 parts[0].parse::<u16>().ok()
@@ -317,6 +326,21 @@ fn parse_outline(text: &str) -> Outline {
             continue;
         }
 
+        if let Some(rest) = trimmed.strip_prefix("model ") {
+            let colon_pos = rest.find(':').unwrap_or(rest.len());
+            let model_name = rest[..colon_pos].trim().to_string();
+
+            outline.models.push(ModelOutline {
+                name: model_name,
+                line: line_no,
+                start_char: indent,
+                end_char,
+            });
+
+            i += 1;
+            continue;
+        }
+
         i += 1;
     }
 
@@ -409,6 +433,16 @@ fn keyword_completions() -> Vec<CompletionItem> {
             ..CompletionItem::default()
         },
         CompletionItem {
+            label: "model".to_string(),
+            kind: Some(CompletionItemKind::KEYWORD),
+            detail: Some("Define ORM model: model Name: fields".to_string()),
+            insert_text: Some(
+                "model ${1:User}:\n  id: int pk\n  name: string\n  created_at?: string".to_string(),
+            ),
+            insert_text_format: Some(InsertTextFormat::SNIPPET),
+            ..CompletionItem::default()
+        },
+        CompletionItem {
             label: "GET".to_string(),
             kind: Some(CompletionItemKind::KEYWORD),
             detail: Some("HTTP GET method".to_string()),
@@ -456,6 +490,89 @@ fn make_document_symbol(
     }
 }
 
+/// Compute rename edits for the identifier under `position` in `text`.
+fn compute_rename_edits(
+    uri: &Url,
+    text: &str,
+    position: Position,
+    new_name: &str,
+) -> Option<WorkspaceEdit> {
+    let lines: Vec<&str> = text.lines().collect();
+    let line_idx = position.line as usize;
+    if line_idx >= lines.len() {
+        return None;
+    }
+    let line = lines[line_idx];
+    let idx = (position.character as usize).min(line.len());
+    let (start, end) = find_word_span(line, idx);
+    if start >= end || end > line.len() {
+        return None;
+    }
+
+    let old_name = line[start..end].trim_matches('"').to_string();
+    if old_name.is_empty() {
+        return None;
+    }
+
+    let mut edits: Vec<TextEdit> = Vec::new();
+
+    for (ln, l) in lines.iter().enumerate() {
+        let mut search = 0usize;
+        while let Some(rel) = l[search..].find(&old_name) {
+            let abs = search + rel;
+            let after = abs + old_name.len();
+
+            let before_ch = if abs == 0 {
+                None
+            } else {
+                Some(l.as_bytes()[abs - 1] as char)
+            };
+            let after_ch = if after < l.len() {
+                Some(l.as_bytes()[after] as char)
+            } else {
+                None
+            };
+
+            // Clippy fix: use is_none_or instead of map_or(true, ...)
+            if before_ch.is_none_or(|c| !is_word_char(c))
+                && after_ch.is_none_or(|c| !is_word_char(c))
+            {
+                let range = Range {
+                    start: Position {
+                        line: ln as u32,
+                        character: abs as u32,
+                    },
+                    end: Position {
+                        line: ln as u32,
+                        character: after as u32,
+                    },
+                };
+                edits.push(TextEdit {
+                    range,
+                    new_text: new_name.to_string(),
+                });
+            }
+
+            search = after;
+            if search >= l.len() {
+                break;
+            }
+        }
+    }
+
+    if edits.is_empty() {
+        None
+    } else {
+        let mut changes = HashMap::new();
+        changes.insert(uri.clone(), edits);
+        Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        })
+    }
+}
+
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
@@ -473,6 +590,7 @@ impl LanguageServer for Backend {
                 ..CompletionOptions::default()
             }),
             document_symbol_provider: Some(OneOf::Left(true)),
+            rename_provider: Some(OneOf::Left(true)),
             ..ServerCapabilities::default()
         };
 
@@ -480,7 +598,7 @@ impl LanguageServer for Backend {
             capabilities,
             server_info: Some(ServerInfo {
                 name: "Shrimpl Language Server".to_string(),
-                version: Some("0.5.0".to_string()),
+                version: Some("0.5.5".to_string()),
             }),
         })
     }
@@ -581,6 +699,11 @@ impl LanguageServer for Backend {
             class_names.insert(c.name.clone(), c.clone());
         }
 
+        let mut model_names = HashMap::<String, ModelOutline>::new();
+        for m in &outline.models {
+            model_names.insert(m.name.clone(), m.clone());
+        }
+
         let mut method_names = HashMap::<String, Vec<MethodOutline>>::new();
         for c in &outline.classes {
             for m in &c.methods {
@@ -627,6 +750,11 @@ impl LanguageServer for Backend {
                 "Shrimpl class definition.\n\nSyntax: `class Name:` followed by indented methods:\n`  methodName(args): expr`."
                     .to_string(),
             )
+        } else if word == "model" {
+            Some(
+                "Shrimpl ORM model definition.\n\nSyntax:\n```shrimpl\nmodel User:\n  id: int pk\n  name: string\n  age?: int\n```"
+                    .to_string(),
+            )
         } else if word == "GET" || word == "POST" {
             Some(format!(
                 "HTTP `{}` endpoint method.\n\nUsed in `endpoint` declarations, for example:\n```shrimpl\nendpoint {} \"/hello\": \"Hello!\"\n```",
@@ -652,6 +780,12 @@ impl LanguageServer for Backend {
                 c.name,
                 c.line + 1,
                 method_list
+            ))
+        } else if let Some(m) = model_names.get(&word) {
+            Some(format!(
+                "Model `{}`.\n\nDeclared on line {}.\n\nUsed by the ORM layer to create tables and map records to rows.",
+                m.name,
+                m.line + 1
             ))
         } else if let Some(methods) = method_names.get(&word) {
             let mut entries = Vec::new();
@@ -793,7 +927,78 @@ impl LanguageServer for Backend {
             ));
         }
 
+        for m in outline.models {
+            let range = make_range(m.line, m.start_char, m.end_char);
+            symbols.push(make_document_symbol(
+                m.name,
+                Some("model".to_string()),
+                SymbolKind::STRUCT,
+                range,
+                None,
+            ));
+        }
+
         Ok(Some(DocumentSymbolResponse::Nested(symbols)))
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let uri = params.text_document.uri;
+        let position = params.position;
+
+        let text_opt = {
+            let docs = self.documents.lock().await;
+            docs.get(&uri).cloned()
+        };
+        let text = match text_opt {
+            Some(t) => t,
+            None => return Ok(None),
+        };
+
+        let lines: Vec<&str> = text.lines().collect();
+        let line_idx = position.line as usize;
+        if line_idx >= lines.len() {
+            return Ok(None);
+        }
+        let line = lines[line_idx];
+        let idx = (position.character as usize).min(line.len());
+        let (start, end) = find_word_span(line, idx);
+        if start >= end {
+            return Ok(None);
+        }
+
+        let range = Range {
+            start: Position {
+                line: position.line,
+                character: start as u32,
+            },
+            end: Position {
+                line: position.line,
+                character: end as u32,
+            },
+        };
+
+        Ok(Some(PrepareRenameResponse::Range(range)))
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let new_name = params.new_name;
+
+        let text_opt = {
+            let docs = self.documents.lock().await;
+            docs.get(&uri).cloned()
+        };
+        let text = match text_opt {
+            Some(t) => t,
+            None => return Ok(None),
+        };
+
+        let edit = compute_rename_edits(&uri, &text, position, &new_name);
+        Ok(edit)
     }
 }
 
